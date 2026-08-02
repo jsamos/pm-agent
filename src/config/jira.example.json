@@ -1,0 +1,15 @@
+{
+  "cloudId": "your-cloud-id",
+  "projects": ["PROJECT1", "PROJECT2"],
+  "fields": {
+    "sprint": "customfield_10021"
+  },
+  "roster": [
+    "First Last",
+    "Another Person"
+  ],
+  "issueLinkBase": "https://your-org.atlassian.net/browse/",
+  "narrative": {
+    "descriptionLimit": 1000
+  }
+}

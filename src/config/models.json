@@ -1,0 +1,12 @@
+{
+  "default": "gpt-4o",
+  "agents": {
+    "agent": "gpt-4o",
+    "roster": "gpt-4o-mini",
+    "sprint-rollup": "gpt-4o-mini"
+  },
+  "tools": {
+    "generate_epic_narrative": "gpt-4o",
+    "generate_sprint_narrative": "gpt-4o"
+  }
+}

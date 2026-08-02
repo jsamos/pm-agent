@@ -1,0 +1,18 @@
+{
+  "resolved": [
+    {
+      "name": "Jane Smith",
+      "shortName": "Jane",
+      "accountId": "712020:00000000-0000-0000-0000-000000000001",
+      "displayName": "Jane Smith"
+    },
+    {
+      "name": "Alex Johnson",
+      "shortName": "Alex",
+      "accountId": "712020:00000000-0000-0000-0000-000000000002",
+      "displayName": "Alex Johnson"
+    }
+  ],
+  "unresolved": [],
+  "generatedAt": "2026-01-01T00:00:00.000Z"
+}
