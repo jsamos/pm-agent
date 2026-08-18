@@ -57,6 +57,8 @@ npm run auth          # interactive OAuth flow
 npm run check         # verify the connection works
 ```
 
+> **Finding your Cloud ID:** Visit `https://your-org.atlassian.net/_edge/tenant_info` in a browser while logged in. The `cloudId` field in the JSON response is what goes in `jira.json`.
+
 ### Usage
 
 ```bash
