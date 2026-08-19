@@ -11,6 +11,7 @@ import {
   generateSprintNarrativeTool,
 } from "../tools/jira/index.js";
 import { readRosterTool, writeRosterTool } from "../tools/roster/index.js";
+import { searchSlackUsersTool, sendSlackMessageTool } from "../tools/slack/index.js";
 import { loadSkillTool } from "../tools/skills/index.js";
 
 export function createRegistry(): ToolRegistry {
@@ -32,6 +33,10 @@ export function createRegistry(): ToolRegistry {
   // Roster management
   registry.register(readRosterTool);
   registry.register(writeRosterTool);
+
+  // Slack tools
+  registry.register(searchSlackUsersTool);
+  registry.register(sendSlackMessageTool);
 
   // Skill loader
   registry.register(loadSkillTool);
