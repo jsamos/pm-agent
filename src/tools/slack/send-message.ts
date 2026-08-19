@@ -8,6 +8,7 @@ import type { Tool } from "../registry.js";
 import type { ExecutionContext } from "../../lib/context.js";
 import { resolveContentRef } from "../../lib/context.js";
 import { callSlackTool, extractTextContent } from "./client.js";
+import { trace } from "../../lib/agent-loop.js";
 
 export interface SendMessageResult {
   ok: boolean;
@@ -112,6 +113,13 @@ export const sendSlackMessageTool: Tool = {
 
     const result = await callSlackTool("slack_send_message", params);
     const content2 = extractTextContent(result);
+
+    trace("slack_mcp_response", {
+      tool: "send_slack_message",
+      channelId,
+      raw: JSON.stringify(content2).slice(0, 1000),
+    });
+
     const parsed = parseSendResult(content2);
 
     const target = channelId.startsWith("U") ? "DM" : "channel";

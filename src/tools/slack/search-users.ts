@@ -7,6 +7,7 @@
 import type { Tool } from "../registry.js";
 import type { ExecutionContext } from "../../lib/context.js";
 import { callSlackTool, extractTextContent } from "./client.js";
+import { trace } from "../../lib/agent-loop.js";
 
 export interface SlackUser {
   userId: string;
@@ -34,7 +35,12 @@ export function parseSlackUsers(raw: unknown): SlackUser[] {
   }
 
   const results = data.results;
-  if (results.toLowerCase().includes("0 results")) return [];
+
+  const lower = results.toLowerCase();
+  if (lower.includes("error")) {
+    throw new Error(`Slack user search failed: ${results.slice(0, 300)}`);
+  }
+  if (lower.includes("0 results")) return [];
 
   const blocks = results.split(/###\s+Result\s+\d+/);
   const users: SlackUser[] = [];
@@ -59,6 +65,19 @@ export function parseSlackUsers(raw: unknown): SlackUser[] {
   return users;
 }
 
+async function searchSlack(query: string): Promise<SlackUser[]> {
+  const result = await callSlackTool("slack_search_users", { query });
+  const content = extractTextContent(result);
+
+  trace("slack_mcp_response", {
+    tool: "search_slack_users",
+    query,
+    raw: JSON.stringify(content).slice(0, 1000),
+  });
+
+  return parseSlackUsers(content);
+}
+
 export const searchSlackUsersTool: Tool = {
   name: "search_slack_users",
   description:
@@ -78,9 +97,14 @@ export const searchSlackUsersTool: Tool = {
     const query = args.query as string;
     if (!query) throw new Error("query is required");
 
-    const result = await callSlackTool("slack_search_users", { query });
-    const content = extractTextContent(result);
-    const users = parseSlackUsers(content);
+    let users = await searchSlack(query);
+
+    if (users.length === 0 && query.includes(" ")) {
+      const firstName = query.split(/\s+/)[0];
+      process.stderr.write(`  [slack] No results for "${query}", retrying with "${firstName}"\n`);
+      trace("slack_search_retry", { original: query, retry: firstName });
+      users = await searchSlack(firstName);
+    }
 
     const summary = users.length > 0
       ? `Found ${users.length} user(s): ${users.map((u) => `${u.realName || u.displayName} (${u.userId})`).join(", ")}`

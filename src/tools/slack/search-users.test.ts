@@ -71,4 +71,9 @@ describe("parseSlackUsers", () => {
   it("throws on raw string response", () => {
     expect(() => parseSlackUsers("something unexpected")).toThrow("Unexpected Slack response");
   });
+
+  it("throws on error in results text", () => {
+    const raw = { results: "Error: user_not_found" };
+    expect(() => parseSlackUsers(raw)).toThrow("Slack user search failed");
+  });
 });
