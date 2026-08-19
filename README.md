@@ -163,7 +163,7 @@ npm test              # run all tests
 npm run test:watch    # watch mode
 ```
 
-108 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, and skill loading. No tests make LLM or network calls.
+122 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, and skill loading. No tests make LLM or network calls.
 
 ## Utility scripts
 
