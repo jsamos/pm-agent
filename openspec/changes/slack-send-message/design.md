@@ -1,6 +1,14 @@
 # Slack Integration: Send a Message
 
+**Status: Archived** — Implemented in commit `c6161fa`.
+
 Depends on: `multi-service-mcp` (archived)
+
+## Addendum: Divergences from original design
+
+- **Response format:** The Slack hosted MCP returns markdown-formatted results (`{ results: "# Search Results...\nName: ...\nUser ID: ..." }`) rather than structured JSON. Parsers extract fields from markdown lines instead of object properties.
+- **Error surfacing:** `callSlackTool` checks `result.isError` and throws. Parsers throw on unexpected shapes or error indicators rather than returning empty/default results. This ensures errors propagate to the LLM.
+- **No `response_format: "json"` option:** Slack's MCP only supports `"detailed"` (default) and `"concise"` — both return markdown. `"concise"` strips IDs so we stick with the default.
 
 ## Architecture
 
