@@ -30,6 +30,14 @@ Internal log:  { tool: "search", result: { items: [...], ... } }
 
 The summary updates the LLM on what happened so it can decide what to do next. The full payload is available to downstream tools through the internal log — the LLM never needs to relay it.
 
+When a tool produces content that a later tool might need to forward (e.g. a report that should be sent via Slack), the summary includes a content reference hint:
+
+```
+summary: "Report generated (6 groups). Full content available via contentFrom: \"generate_report\"."
+```
+
+The downstream tool accepts a `contentFrom` parameter. Instead of the LLM reconstructing the content from the summary, it just tells the tool where to look. The tool resolves the reference from the call log directly. The LLM's role is routing — naming which prior tool's output to forward — not relaying content.
+
 ### The LLM should route data between tools
 
 *North star.* The ideal: tools are fully decoupled. A tool never imports another tool. When a downstream tool needs prior data, the LLM reads the summary, decides what's next, and directs the next tool to the right prior result in the chain. The LLM is the router — it decides not just *which* tool to call, but *what data* to feed it.
@@ -126,7 +134,7 @@ Downstream tools often need data from prior tool results — without the LLM re-
 
 The agent loop exposes the full tool call log to every tool. A tool can find prior results by tool name and read structured data directly. The LLM never touches the payload.
 
-This is the primary decoupling mechanism. A tool doesn't call another tool — it reads from the log.
+This is the primary decoupling mechanism. A tool doesn't call another tool — it reads from the log. Content references (the `contentFrom` pattern) are the formalized version: a shared `resolveContentRef` utility looks up a named field from the most recent invocation of a given tool. This keeps cross-tool data flow explicit and auditable without requiring tools to import each other.
 
 ### Dynamic skills
 
@@ -219,3 +227,15 @@ Turn 9: LLM responds          → done
 ```
 
 The skill controlled step order (diff before save, abort on no changes). The LLM made intent decisions (who to include, whether to continue after seeing the diff). The tools handled mechanics (query construction, API calls, caching, deterministic document assembly). The report tool made its own internal LLM call for prose generation — the orchestrator LLM never saw the raw data.
+
+### Cross-service chaining
+
+A user asks "generate a sprint report and send it to Alice on Slack." The agent chains tools across services:
+
+```
+Turn 1–8: (same as above)    → report generated
+Turn 9: search_users("Alice") → "Found Alice (U001)"
+Turn 10: send_message          → contentFrom: "generate_report", channelId: "U001"
+```
+
+At turn 8, the LLM saw a summary: "Report generated (6 groups). Full content available via contentFrom: generate_report." At turn 10, it passes `contentFrom: "generate_report"` — the send tool pulls the full narrative from the call log and sends it directly. The LLM routed the data without ever seeing it.

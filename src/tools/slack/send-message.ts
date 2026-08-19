@@ -6,6 +6,7 @@
 
 import type { Tool } from "../registry.js";
 import type { ExecutionContext } from "../../lib/context.js";
+import { resolveContentRef } from "../../lib/context.js";
 import { callSlackTool, extractTextContent } from "./client.js";
 
 export interface SendMessageResult {
@@ -55,7 +56,7 @@ export function parseSendResult(raw: unknown): SendMessageResult {
 export const sendSlackMessageTool: Tool = {
   name: "send_slack_message",
   description:
-    "Send a message to a Slack channel or user. To DM someone, pass their user ID (from search_slack_users) as the channelId. Supports thread replies via threadTs.",
+    "Send a message to a Slack channel or user. To DM someone, pass their user ID (from search_slack_users) as the channelId. Use contentFrom to forward the full output of a prior tool (e.g. generate_sprint_narrative) — the message parameter becomes an optional prefix.",
   parameters: {
     type: "object",
     properties: {
@@ -65,23 +66,43 @@ export const sendSlackMessageTool: Tool = {
       },
       message: {
         type: "string",
-        description: "Message text (supports Slack markdown: **bold**, _italic_, `code`, links).",
+        description: "Message text. When using contentFrom, this is prepended as a preamble before the referenced content.",
+      },
+      contentFrom: {
+        type: "string",
+        description: "Tool name to pull full content from (e.g. 'generate_sprint_narrative'). The tool's narrative output is used as the message body.",
       },
       threadTs: {
         type: "string",
         description: "Parent message timestamp to reply in a thread (optional).",
       },
     },
-    required: ["channelId", "message"],
+    required: ["channelId"],
   },
 
-  async execute(args, _context: ExecutionContext) {
+  async execute(args, context: ExecutionContext) {
     const channelId = args.channelId as string;
-    const message = args.message as string;
+    const contentFrom = args.contentFrom as string | undefined;
+    const preamble = (args.message as string) || "";
     const threadTs = args.threadTs as string | undefined;
 
     if (!channelId) throw new Error("channelId is required");
-    if (!message) throw new Error("message is required");
+
+    let message: string;
+
+    if (contentFrom) {
+      const content = resolveContentRef(context.toolCallLog, contentFrom);
+      if (!content) {
+        throw new Error(
+          `contentFrom "${contentFrom}" not found in tool call log. ` +
+          `Make sure ${contentFrom} was called earlier in this conversation.`
+        );
+      }
+      message = preamble ? `${preamble}\n\n${content}` : content;
+    } else {
+      if (!preamble) throw new Error("message is required when contentFrom is not set");
+      message = preamble;
+    }
 
     const params: Record<string, unknown> = {
       channel_id: channelId,
@@ -90,12 +111,13 @@ export const sendSlackMessageTool: Tool = {
     if (threadTs) params.thread_ts = threadTs;
 
     const result = await callSlackTool("slack_send_message", params);
-    const content = extractTextContent(result);
-    const parsed = parseSendResult(content);
+    const content2 = extractTextContent(result);
+    const parsed = parseSendResult(content2);
 
     const target = channelId.startsWith("U") ? "DM" : "channel";
+    const refNote = contentFrom ? ` (content from ${contentFrom})` : "";
     const linkNote = parsed.messageLink ? ` — ${parsed.messageLink}` : "";
-    const summary = `Message sent to ${target} ${channelId}${linkNote}`;
+    const summary = `Message sent to ${target} ${channelId}${refNote}${linkNote}`;
 
     return { ...parsed, summary };
   },

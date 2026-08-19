@@ -3,6 +3,28 @@ import type { LLM, Message, ToolDefinition, LLMResponse } from "./llm.js";
 import type { ToolCallEntry } from "./agent-loop.js";
 import { callTool } from "./connection.js";
 
+/**
+ * Look up a prior tool's result by tool name from the call log.
+ * Searches backwards so the most recent invocation wins.
+ * Extracts the content field specified by `field` (default: "narrative").
+ * Returns the string content, or null if not found.
+ */
+export function resolveContentRef(
+  log: ToolCallEntry[] | undefined,
+  toolName: string,
+  field: string = "narrative",
+): string | null {
+  if (!log) return null;
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i].tool !== toolName) continue;
+    const result = log[i].result as Record<string, unknown> | null;
+    if (result && typeof result[field] === "string") {
+      return result[field] as string;
+    }
+  }
+  return null;
+}
+
 export interface ExecutionMeta {
   attempt: number;
   strategy?: string;

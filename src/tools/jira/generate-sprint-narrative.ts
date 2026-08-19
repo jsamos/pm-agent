@@ -333,7 +333,7 @@ export const generateSprintNarrativeTool: Tool = {
 
     return {
       narrative,
-      summary: `Sprint narrative generated (${grouped.groups.length} groups, ${totalDelivered} delivered, ${totalInProgress} in progress).`,
+      summary: `Sprint narrative generated (${grouped.groups.length} groups, ${totalDelivered} delivered, ${totalInProgress} in progress). Full content available via contentFrom: "generate_sprint_narrative".`,
     };
   },
 };
