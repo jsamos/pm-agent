@@ -26,12 +26,16 @@ export const buildEpicJqlTool: Tool = {
         type: "string",
         description: "Optional Jira account ID to filter by assignee",
       },
+      excludeClosed: {
+        type: "boolean",
+        description: "If true, exclude issues where statusCategory = Done (default: false)",
+      },
     },
     required: ["epicKeys"],
   },
 
   async execute(args) {
-    const { epicKeys, assignee } = args as { epicKeys: string[]; assignee?: string };
+    const { epicKeys, assignee, excludeClosed } = args as { epicKeys: string[]; assignee?: string; excludeClosed?: boolean };
 
     if (!epicKeys || epicKeys.length === 0) {
       throw new Error("At least one epic key is required");
@@ -51,6 +55,10 @@ export const buildEpicJqlTool: Tool = {
 
     if (assignee) {
       clauses.push(`assignee = "${assignee}"`);
+    }
+
+    if (excludeClosed) {
+      clauses.push(`statusCategory != Done`);
     }
 
     const jql = clauses.join(" AND ") + " ORDER BY issuetype ASC, status ASC";

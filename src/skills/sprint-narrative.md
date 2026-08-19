@@ -1,6 +1,7 @@
 Sprint narrative (follow this order EXACTLY):
   1. resolve_assignees to get account IDs
   2. build_sprint_jql to construct the query
+     - Consider the user's intent: are they asking about everything in the sprint, or only the unfinished portion? If the focus is on what's not yet done, pass excludeClosed: true.
   3. search_jira_issues to fetch issues (pass resolveParentsTo: "Epic")
   4. jira_search_snapshots({ action: "diff" }) — MUST come BEFORE save
      Read the diff summary, then decide:

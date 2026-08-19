@@ -16,6 +16,7 @@ import type { GroupIssuesResult, IssueGroup } from "./group-issues.js";
 import type { JiraIssue } from "./search-issues.js";
 import { getToolModel } from "../../lib/models.js";
 import { extractDiffFromLog, formatDiffBlock } from "./format-diff.js";
+import { trace } from "../../lib/agent-loop.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT = readFileSync(resolve(__dirname, "../../prompts/epic-narrative.md"), "utf-8").trim();
@@ -130,18 +131,28 @@ export const generateEpicNarrativeTool: Tool = {
 
     const userMessage = dataSections.join("\n\n");
 
+    const llmStart = Date.now();
     const response = await context.llm.generate([
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userMessage },
     ], { model: getToolModel("generate_epic_narrative"), temperature: 0.3 });
+    const llmMs = Date.now() - llmStart;
 
     const raw = response.content || "";
+    trace("inner_llm_call", {
+      tool: "generate_epic_narrative",
+      ms: llmMs,
+      response: raw.slice(0, 2000),
+    });
+
     const jsonStr = extractJson(raw);
 
     let parsed: EpicNarrativeParsed;
     try {
       parsed = JSON.parse(jsonStr);
-    } catch {
+    } catch (e) {
+      process.stderr.write(`  [warn] generate_epic_narrative: JSON parse failed — ${(e as Error).message}\n`);
+      trace("inner_llm_parse_error", { tool: "generate_epic_narrative", error: (e as Error).message, raw: raw.slice(0, 1000) });
       return { narrative: raw };
     }
 

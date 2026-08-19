@@ -17,6 +17,7 @@ import type { JiraIssue } from "./search-issues.js";
 import type { IssueGroup, GroupIssuesResult } from "./group-issues.js";
 import { getToolModel } from "../../lib/models.js";
 import { extractDiffFromLog, formatDiffBlock } from "./format-diff.js";
+import { trace } from "../../lib/agent-loop.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT = readFileSync(resolve(__dirname, "../../prompts/sprint-narrative.md"), "utf-8").trim();
@@ -76,11 +77,18 @@ export function linkifyIssueKeys(text: string, issueKeys: Set<string>, jiraBase:
   return result;
 }
 
+export interface AssembleResult {
+  markdown: string;
+  matched: number;
+  total: number;
+  unmatchedKeys: string[];
+}
+
 export function assembleMarkdown(
   grouped: GroupIssuesResult,
   parsedGroups: GroupNarrative[],
   jiraBase: string,
-): string {
+): AssembleResult {
   const outerKey = grouped.groupBy[0];
   const hasStatusSub = grouped.groupBy.length > 1 && grouped.groupBy[1] === "status";
 
@@ -91,10 +99,22 @@ export function assembleMarkdown(
   function resolveDataGroup(parsedKey: string): IssueGroup | undefined {
     const trimmed = parsedKey.trim();
     const normed = trimmed.toLowerCase();
-    return dataByKey.get(parsedKey)
+    const match = dataByKey.get(parsedKey)
       ?? dataByKey.get(trimmed)
       ?? dataByNormKey.get(normed)
       ?? dataByLabel.get(normed);
+    if (match) return match;
+
+    // Handle composite keys the LLM may produce ("KEY — Label")
+    const dashIdx = trimmed.indexOf(" — ");
+    if (dashIdx !== -1) {
+      const prefix = trimmed.slice(0, dashIdx).trim();
+      const suffix = trimmed.slice(dashIdx + 3).trim();
+      return dataByKey.get(prefix)
+        ?? dataByNormKey.get(prefix.toLowerCase())
+        ?? dataByLabel.get(suffix.toLowerCase());
+    }
+    return undefined;
   }
 
   function renderGroup(dataGroup: IssueGroup, prose: GroupNarrative | undefined): string | null {
@@ -146,12 +166,25 @@ export function assembleMarkdown(
   }
 
   const md: string[] = [];
+  let nonEmptyCount = 0;
   for (const dataGroup of sorted) {
     const section = renderGroup(dataGroup, proseByKey.get(dataGroup.groupKey));
-    if (section) md.push(section);
+    if (section) {
+      md.push(section);
+      nonEmptyCount++;
+    }
   }
 
-  return linkifyIssueKeys(md.join("\n\n---\n\n"), allKeys, jiraBase);
+  const unmatchedKeys = parsedGroups
+    .filter((pg) => !resolveDataGroup(pg.groupKey))
+    .map((pg) => pg.groupKey);
+
+  return {
+    markdown: linkifyIssueKeys(md.join("\n\n---\n\n"), allKeys, jiraBase),
+    matched: proseByKey.size,
+    total: nonEmptyCount,
+    unmatchedKeys,
+  };
 }
 
 export const generateSprintNarrativeTool: Tool = {
@@ -211,7 +244,8 @@ export const generateSprintNarrativeTool: Tool = {
 
     for (const group of grouped.groups) {
       const lines: string[] = [];
-      lines.push(`GROUP: ${group.groupKey} — ${group.groupLabel}`);
+      lines.push(`GROUP KEY: ${group.groupKey}`);
+      lines.push(`GROUP LABEL: ${group.groupLabel}`);
 
       if (hasStatusSub) {
         const done = getSubGroupIssues(group, "done");
@@ -244,22 +278,49 @@ export const generateSprintNarrativeTool: Tool = {
 
     const userMessage = dataSections.join("\n\n");
 
+    trace("inner_llm_request", {
+      tool: "generate_sprint_narrative",
+      userMessage: userMessage.slice(0, 2000),
+    });
+
+    const llmStart = Date.now();
     const response = await context.llm.generate([
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userMessage },
     ], { model: getToolModel("generate_sprint_narrative"), temperature: 0.3 });
+    const llmMs = Date.now() - llmStart;
 
     const raw = response.content || "";
+    trace("inner_llm_call", {
+      tool: "generate_sprint_narrative",
+      ms: llmMs,
+      response: raw.slice(0, 2000),
+    });
+
     const jsonStr = extractJson(raw);
 
     let parsed: { groups?: GroupNarrative[] };
     try {
       parsed = JSON.parse(jsonStr);
-    } catch {
+    } catch (e) {
+      process.stderr.write(`  [warn] generate_sprint_narrative: JSON parse failed — ${(e as Error).message}\n`);
+      trace("inner_llm_parse_error", { tool: "generate_sprint_narrative", error: (e as Error).message, raw: raw.slice(0, 1000) });
       return { narrative: raw };
     }
 
-    let narrative = assembleMarkdown(grouped, parsed.groups ?? [], jiraBase);
+    const parsedGroupCount = parsed.groups?.length ?? 0;
+    if (parsedGroupCount === 0) {
+      process.stderr.write(`  [warn] generate_sprint_narrative: LLM returned 0 groups (keys in response: ${Object.keys(parsed).join(", ")})\n`);
+      trace("inner_llm_empty_groups", { tool: "generate_sprint_narrative", responseKeys: Object.keys(parsed) });
+    }
+
+    const assembled = assembleMarkdown(grouped, parsed.groups ?? [], jiraBase);
+
+    if (assembled.matched < assembled.total) {
+      process.stderr.write(`  [warn] generate_sprint_narrative: ${assembled.matched}/${assembled.total} groups matched (unmatched LLM keys: ${assembled.unmatchedKeys.join(", ") || "none"})\n`);
+    }
+
+    let narrative = assembled.markdown;
 
     const diff = log ? extractDiffFromLog(log) : null;
     if (diff) {

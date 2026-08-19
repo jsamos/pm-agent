@@ -6,6 +6,7 @@ import {
   extractJson,
   linkifyIssueKeys,
   type GroupNarrative,
+  type AssembleResult,
 } from "./generate-sprint-narrative.js";
 import type { IssueGroup, GroupIssuesResult } from "./group-issues.js";
 import type { JiraIssue } from "./search-issues.js";
@@ -118,7 +119,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "PROJ-200", inProgress: ["Export is in progress."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Onboarding is complete.");
     expect(md).toContain("Export is in progress.");
     expect(md).not.toContain("_No narrative generated._");
@@ -133,7 +134,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "User Onboarding", delivered: ["Matched by label."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Matched by label.");
     expect(md).not.toContain("_No narrative generated._");
   });
@@ -147,7 +148,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "user onboarding", delivered: ["Case insensitive match."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Case insensitive match.");
   });
 
@@ -162,7 +163,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "PROJ-1", delivered: ["Alpha prose."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     const alphaIdx = md.indexOf("Alpha prose.");
     const zebraIdx = md.indexOf("Zebra prose.");
     expect(alphaIdx).toBeLessThan(zebraIdx);
@@ -179,7 +180,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "PROJ-1", delivered: ["Alpha prose."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     const alphaIdx = md.indexOf("Alpha prose.");
     const standaloneIdx = md.indexOf("Standalone prose.");
     expect(alphaIdx).toBeLessThan(standaloneIdx);
@@ -195,7 +196,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "PROJ-1", delivered: ["Alpha prose."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Alpha prose.");
     expect(md).toContain("## Beta");
     expect(md).toContain("_No narrative generated._");
@@ -212,7 +213,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "PROJ-2", delivered: ["Should not appear."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Alpha.");
     expect(md).not.toContain("Should not appear.");
     expect(md).not.toContain("Empty");
@@ -236,7 +237,7 @@ describe("assembleMarkdown", () => {
       },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Done prose.");
     expect(md).toContain("### In Progress\n\nWIP prose.");
     expect(md).toContain("### Not Started\n\nPending prose.");
@@ -247,7 +248,7 @@ describe("assembleMarkdown", () => {
       makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] }),
     ]);
 
-    const md = assembleMarkdown(grouped, [], JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, [], JIRA_BASE);
     expect(md).toContain("## Alpha");
     expect(md).toContain("_No narrative generated._");
   });
@@ -261,7 +262,7 @@ describe("assembleMarkdown", () => {
       { groupKey: " PROJ-914 ", delivered: ["Trimmed key match."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Trimmed key match.");
   });
 
@@ -277,7 +278,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "PROJ-1", delivered: ["Done."], inProgress: ["WIP."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     const headingIdx = md.indexOf("## Alpha");
     const assigneeIdx = md.indexOf("**Alice, Bob**");
     expect(assigneeIdx).toBeGreaterThan(headingIdx);
@@ -296,7 +297,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "PROJ-1", delivered: ["Done."], inProgress: ["WIP."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("**Alice**");
     expect(md).not.toContain("Alice, Alice");
   });
@@ -312,7 +313,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "PROJ-1", delivered: ["Done."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).not.toContain("**");
   });
 
@@ -325,7 +326,7 @@ describe("assembleMarkdown", () => {
       { groupKey: "PROJ-1", inProgress: ["Work is underway (WORK-100 · Alice)."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain(`([WORK-100](${JIRA_BASE}/WORK-100) · Alice)`);
     expect(md).not.toMatch(/\(WORK-100 ·/);
   });
@@ -358,7 +359,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
       { groupKey: "Alice Martin", inProgress: ["Alice is working."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Dan delivered work.");
     expect(md).toContain("Alice is working.");
     expect(md).not.toContain("_No narrative generated._");
@@ -373,7 +374,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
       { groupKey: "dan torres", delivered: ["Case insensitive match."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Case insensitive match.");
     expect(md).not.toContain("_No narrative generated._");
   });
@@ -387,7 +388,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
       { groupKey: " Dan Torres ", delivered: ["Whitespace match."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Whitespace match.");
     expect(md).not.toContain("_No narrative generated._");
   });
@@ -401,7 +402,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
       { groupKey: "Dan Torres", delivered: ["Delivered."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("## Dan Torres");
     expect(md).not.toContain("**Dan Torres**");
   });
@@ -424,7 +425,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
       },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Done prose.");
     expect(md).toContain("### In Progress\n\nWIP prose.");
     expect(md).toContain("### Not Started\n\nPending prose.");
@@ -441,7 +442,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
       { groupKey: "PROJ-1", delivered: ["Done."] },
     ];
 
-    const md = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("**Bob**");
   });
 
@@ -450,7 +451,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
       makeAssigneeGroup("Alice", { done: [makeIssue("X-1", { assignee: "Alice" })] }),
     ]);
 
-    const md = assembleMarkdown(grouped, [], JIRA_BASE);
+    const { markdown: md } = assembleMarkdown(grouped, [], JIRA_BASE);
     expect(md).toContain("## Alice");
     expect(md).toContain("_No narrative generated._");
     expect(md).not.toContain("**Alice**");
@@ -486,5 +487,125 @@ describe("linkifyIssueKeys", () => {
     const text = "No issue keys here.";
     const keys = new Set(["WORK-999"]);
     expect(linkifyIssueKeys(text, keys, JIRA_BASE)).toBe(text);
+  });
+});
+
+describe("assembleMarkdown diagnostics", () => {
+  function makeGrouped(groups: IssueGroup[]): GroupIssuesResult {
+    return { groups, groupBy: ["epic", "status"], total: groups.length, dropped: 0, summary: "test" };
+  }
+
+  const doneIssue = makeIssue("PROJ-1", { status: "Done", statusCategory: "Done" });
+  const ipIssue = makeIssue("PROJ-2", { status: "In Progress", statusCategory: "In Progress" });
+
+  it("reports all matched when LLM keys align", () => {
+    const grouped = makeGrouped([
+      {
+        groupKey: "Alpha",
+        groupLabel: "Alpha",
+        issues: [],
+        subGroups: [
+          { groupKey: "done", groupLabel: "Done", issues: [doneIssue], subGroups: [] },
+          { groupKey: "in_progress", groupLabel: "In Progress", issues: [ipIssue], subGroups: [] },
+        ],
+      },
+    ]);
+    const prose: GroupNarrative[] = [
+      { groupKey: "Alpha", heading: "Alpha", done: "Done.", inMotion: "Moving." },
+    ];
+    const result = assembleMarkdown(grouped, prose, JIRA_BASE);
+    expect(result.matched).toBe(1);
+    expect(result.total).toBe(1);
+    expect(result.unmatchedKeys).toEqual([]);
+  });
+
+  it("reports unmatched when LLM returns wrong keys", () => {
+    const grouped = makeGrouped([
+      {
+        groupKey: "Alpha",
+        groupLabel: "Alpha",
+        issues: [],
+        subGroups: [
+          { groupKey: "done", groupLabel: "Done", issues: [doneIssue], subGroups: [] },
+        ],
+      },
+    ]);
+    const prose: GroupNarrative[] = [
+      { groupKey: "Wrong Key", heading: "Wrong", done: "Done." },
+    ];
+    const result = assembleMarkdown(grouped, prose, JIRA_BASE);
+    expect(result.matched).toBe(0);
+    expect(result.total).toBe(1);
+    expect(result.unmatchedKeys).toContain("Wrong Key");
+    expect(result.markdown).toContain("_No narrative generated._");
+  });
+
+  it("reports partial matches", () => {
+    const grouped = makeGrouped([
+      {
+        groupKey: "Alpha",
+        groupLabel: "Alpha",
+        issues: [],
+        subGroups: [
+          { groupKey: "done", groupLabel: "Done", issues: [doneIssue], subGroups: [] },
+        ],
+      },
+      {
+        groupKey: "Beta",
+        groupLabel: "Beta",
+        issues: [],
+        subGroups: [
+          { groupKey: "in_progress", groupLabel: "In Progress", issues: [ipIssue], subGroups: [] },
+        ],
+      },
+    ]);
+    const prose: GroupNarrative[] = [
+      { groupKey: "Alpha", heading: "Alpha", done: "Done." },
+      { groupKey: "Gamma", heading: "Gamma", done: "Not matching." },
+    ];
+    const result = assembleMarkdown(grouped, prose, JIRA_BASE);
+    expect(result.matched).toBe(1);
+    expect(result.total).toBe(2);
+    expect(result.unmatchedKeys).toContain("Gamma");
+  });
+
+  it("resolves composite keys like 'KEY — Label'", () => {
+    const grouped = makeGrouped([
+      {
+        groupKey: "PROJ-100",
+        groupLabel: "Feature Alpha",
+        issues: [],
+        subGroups: [
+          { groupKey: "in_progress", groupLabel: "In Progress", issues: [ipIssue], subGroups: [] },
+        ],
+      },
+    ]);
+    const prose: GroupNarrative[] = [
+      { groupKey: "PROJ-100 — Feature Alpha", inProgress: ["Work happening."] },
+    ];
+    const result = assembleMarkdown(grouped, prose, JIRA_BASE);
+    expect(result.matched).toBe(1);
+    expect(result.unmatchedKeys).toEqual([]);
+    expect(result.markdown).toContain("Work happening.");
+    expect(result.markdown).not.toContain("_No narrative generated._");
+  });
+
+  it("resolves composite keys by label suffix when key doesn't match", () => {
+    const grouped = makeGrouped([
+      {
+        groupKey: "PROJ-200",
+        groupLabel: "Feature Beta",
+        issues: [],
+        subGroups: [
+          { groupKey: "done", groupLabel: "Done", issues: [doneIssue], subGroups: [] },
+        ],
+      },
+    ]);
+    const prose: GroupNarrative[] = [
+      { groupKey: "WRONG-999 — Feature Beta", delivered: ["Shipped it."] },
+    ];
+    const result = assembleMarkdown(grouped, prose, JIRA_BASE);
+    expect(result.matched).toBe(1);
+    expect(result.markdown).toContain("Shipped it.");
   });
 });

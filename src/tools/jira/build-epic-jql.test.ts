@@ -39,6 +39,18 @@ describe("build_epic_jql", () => {
       .rejects.toThrow("looks like a display name");
   });
 
+  it("appends statusCategory filter when excludeClosed is true", async () => {
+    const result = await execute({ epicKeys: ["PROJ-100"], excludeClosed: true }) as { jql: string };
+    expect(result.jql).toBe(
+      "(key in (PROJ-100) OR parent in (PROJ-100)) AND statusCategory != Done ORDER BY issuetype ASC, status ASC"
+    );
+  });
+
+  it("omits statusCategory filter when excludeClosed is false", async () => {
+    const result = await execute({ epicKeys: ["PROJ-100"], excludeClosed: false }) as { jql: string };
+    expect(result.jql).not.toContain("statusCategory");
+  });
+
   it("throws when epicKeys is empty", async () => {
     await expect(execute({ epicKeys: [] })).rejects.toThrow("At least one epic key is required");
   });

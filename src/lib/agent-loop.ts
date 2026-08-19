@@ -25,7 +25,7 @@ function initTrace(task: string): void {
   trace("init", { task });
 }
 
-function trace(event: string, data: Record<string, unknown>): void {
+export function trace(event: string, data: Record<string, unknown>): void {
   if (!traceFile) return;
   const entry = { ts: Date.now(), event, ...data };
   appendFileSync(traceFile, JSON.stringify(entry) + "\n");
