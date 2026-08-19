@@ -10,7 +10,7 @@ let _client: Client | null = null;
 
 export async function getJiraClient(): Promise<Client> {
   if (!_client) {
-    _client = await connect();
+    _client = await connect("jira");
   }
   return _client;
 }
