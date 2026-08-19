@@ -1,6 +1,6 @@
 # Slack Integration: Send a Message
 
-Depends on: `multi-service-mcp`
+Depends on: `multi-service-mcp` (archived)
 
 ## Architecture
 

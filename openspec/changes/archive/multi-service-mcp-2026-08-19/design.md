@@ -43,3 +43,23 @@ No new npm scripts needed — existing `auth`, `auth:force`, `check`, `tools`, `
 
 - Update any existing tests that call `connect()` without a service argument
 - No new test files needed — this is a refactor of existing infrastructure
+
+---
+
+## Addendum: divergences from original design
+
+### MCP URLs are not fully hardcoded
+
+The design called for hardcoding MCP URLs as pure implementation details. Jira's URL is hardcoded, but Slack requires OAuth credentials (`SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`) from `.env` because Slack's hosted MCP does not support dynamic client registration. The connection layer reads these at connect time and passes them to `mcp-remote` via `--static-oauth-client-info`.
+
+### mcp-remote package changed
+
+Switched from `mcp-remote` (geelen) to `@automattic/mcp-remote` — the maintained fork that supports Slack's Streamable HTTP transport and the `--static-oauth-client-info` flag.
+
+### OAuth callback port pinned
+
+Slack's OAuth requires a redirect URI registered in the Slack app settings. The callback port is pinned to `3334` for services that use static OAuth, so the redirect URI is stable (`http://localhost:3334/oauth/callback`).
+
+### Scripts load dotenv
+
+All scripts (`auth.ts`, `check.ts`, `list-tools.ts`) now `import "dotenv/config"` to load `.env` — required for Slack credentials.
