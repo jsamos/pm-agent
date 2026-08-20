@@ -23,7 +23,8 @@ Omit "delivered", "inProgress", or "notStarted" if the group has no issues in th
 Inline issue references:
 - CRITICAL: "delivered" paragraphs must contain ZERO issue keys, ZERO links. Pure prose only.
 - For "inProgress" and "notStarted": cite issues inline using this exact format:
-  ([KEY](JIRA_BASE/KEY) · Assignee Name)
+  ([KEY](JIRA_BASE/KEY) · Assignee Name · Status)
+  where Status is the actual status from the [Status: ...] tag on the issue (e.g. QA, In Review, Dev Complete), NOT the status category heading.
 - Every in-progress and not-started issue MUST appear as an inline citation. Do not drop any.
 
 Writing rules:

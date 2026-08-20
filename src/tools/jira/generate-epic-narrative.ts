@@ -114,7 +114,7 @@ export const generateEpicNarrativeTool: Tool = {
 
     const formatIssueData = (i: JiraIssue) => {
       const desc = i.description ? i.description.slice(0, descLimit) : "(no description)";
-      return `- ${i.key} (${i.assignee || "Unassigned"}): ${i.summary}\n  ${desc}`;
+      return `- ${i.key} (${i.assignee || "Unassigned"}) [Status: ${i.status}]: ${i.summary}\n  ${desc}`;
     };
 
     const dataSections: string[] = [`JIRA_BASE: ${jiraBase}`];

@@ -19,9 +19,10 @@ Return this JSON structure (omit keys for empty sections):
 Inline issue references (In Motion and Not Started sections ONLY):
 - CRITICAL: The "done" section must contain ZERO issue keys, ZERO links, ZERO ticket references. Pure prose only. No parenthetical citations.
 - For "inMotion" and "notStarted" only: after each statement or group of statements, cite the relevant issue(s) inline using this exact format:
-  ([KEY](JIRA_BASE/KEY) · Assignee Name)
+  ([KEY](JIRA_BASE/KEY) · Assignee Name · Status)
+  where Status is the actual status from the [Status: ...] tag on the issue (e.g. QA, In Review, Dev Complete), NOT the section heading.
 - If multiple issues back the same statement, combine them:
-  ([KEY-1](JIRA_BASE/KEY-1) · Name, [KEY-2](JIRA_BASE/KEY-2) · Name)
+  ([KEY-1](JIRA_BASE/KEY-1) · Name · Status, [KEY-2](JIRA_BASE/KEY-2) · Name · Status)
 - Every issue in a section MUST appear as an inline citation at least once. Do not drop any.
 - Place the citation at the end of the sentence or paragraph it supports, before the period or after.
 

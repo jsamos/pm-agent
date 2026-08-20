@@ -227,7 +227,7 @@ export const generateSprintNarrativeTool: Tool = {
           ? ` [Epic: ${i.parent.key} — ${i.parent.summary}]`
           : ` [Epic: ${i.parent.key}]`;
       }
-      return `  - ${i.key} [${i.issueType}] (${i.assignee || "Unassigned"})${epic}: ${i.summary}\n    ${desc}`;
+      return `  - ${i.key} [${i.issueType}] (${i.assignee || "Unassigned"}) [Status: ${i.status}]${epic}: ${i.summary}\n    ${desc}`;
     };
 
     const sortByEpic = (issues: JiraIssue[]) => [...issues].sort((a, b) => {
