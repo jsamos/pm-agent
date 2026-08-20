@@ -12,6 +12,7 @@ import {
 } from "../tools/jira/index.js";
 import { readRosterTool, writeRosterTool } from "../tools/roster/index.js";
 import { searchSlackUsersTool, sendSlackMessageTool } from "../tools/slack/index.js";
+import { fetchNotionPageTool, createNotionPageTool, updateNotionPageTool } from "../tools/notion/index.js";
 import { loadSkillTool } from "../tools/skills/index.js";
 
 export function createRegistry(): ToolRegistry {
@@ -37,6 +38,11 @@ export function createRegistry(): ToolRegistry {
   // Slack tools
   registry.register(searchSlackUsersTool);
   registry.register(sendSlackMessageTool);
+
+  // Notion tools
+  registry.register(fetchNotionPageTool);
+  registry.register(createNotionPageTool);
+  registry.register(updateNotionPageTool);
 
   // Skill loader
   registry.register(loadSkillTool);

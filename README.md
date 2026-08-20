@@ -2,7 +2,7 @@
 
 An infrastructure layer for building LLM-driven automation. A single agent with a unified tool registry interprets natural language requests, loads workflow recipes on demand, and orchestrates multi-step pipelines — while structural guardrails keep the LLM within configured boundaries.
 
-Currently wired to Jira and Slack via their hosted MCP servers. The architecture is service-agnostic: adding a new integration means building tools, not changing infrastructure.
+Currently wired to Jira, Slack, and Notion via their hosted MCP servers. The architecture is service-agnostic: adding a new integration means building tools, not changing infrastructure.
 
 ## Quick start
 
@@ -55,13 +55,15 @@ SLACK_CLIENT_SECRET=your-slack-app-client-secret
 Each service authenticates independently via OAuth. The first connection opens a browser:
 
 ```bash
-npm run auth -- jira    # Atlassian OAuth flow
-npm run auth -- slack   # Slack OAuth flow
-npm run check -- jira   # verify Jira connection
-npm run check -- slack  # verify Slack connection
+npm run auth -- jira     # Atlassian OAuth flow
+npm run auth -- slack    # Slack OAuth flow
+npm run auth -- notion   # Notion OAuth flow
+npm run check -- jira    # verify Jira connection
+npm run check -- slack   # verify Slack connection
+npm run check -- notion  # verify Notion connection
 ```
 
-See the detailed setup guides: [Jira](docs/jira-setup.md) | [Slack](docs/slack-setup.md)
+See the detailed setup guides: [Jira](docs/jira-setup.md) | [Slack](docs/slack-setup.md) | [Notion](docs/notion-setup.md)
 
 ### Usage
 
@@ -71,6 +73,7 @@ npm run agent -- "what's Alice working on this sprint"
 npm run agent -- "generate an epic narrative for PROJ-100"
 npm run agent -- "add Bob Chen to the roster"
 npm run agent -- "send Alice a Slack message with the sprint report"
+npm run agent -- "publish the sprint report to Notion under https://notion.so/workspace/Reports-abc123"
 ```
 
 Pipe output to a file:
@@ -133,6 +136,7 @@ src/
 └── tools/
     ├── jira/       Jira tools (search, group, narrative, snapshots, etc.)
     ├── slack/      Slack tools (user search, messaging)
+    ├── notion/     Notion tools (fetch, create, update pages)
     ├── roster/     Team roster management
     └── skills/     The load_skill tool
 ```
@@ -152,6 +156,9 @@ src/
 | `generate_epic_narrative` | Composite | LLM prose + deterministic markdown assembly |
 | `search_slack_users` | External | Search Slack users by name or email |
 | `send_slack_message` | External | Send a Slack message or DM; supports `contentFrom` to forward prior tool output |
+| `fetch_notion_page` | External | Fetch a Notion page's content as markdown |
+| `create_notion_page` | External | Create a child page under a parent; supports `contentFrom` |
+| `update_notion_page` | External | Replace a page's content; supports `contentFrom` |
 | `read_roster` | Local I/O | Read team roster from disk |
 | `write_roster` | Local I/O | Add/remove roster entries |
 | `load_skill` | Local I/O | Load a workflow recipe by name |
@@ -171,17 +178,18 @@ npm test              # run all tests
 npm run test:watch    # watch mode
 ```
 
-148 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, skill loading, and execute-level flows with mocked LLM responses. No tests make live LLM or network calls.
+164 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, skill loading, and execute-level flows with mocked LLM responses. No tests make live LLM or network calls.
 
 ## Utility scripts
 
 ```bash
-npm run check -- jira          # verify Jira MCP connection
-npm run check -- slack         # verify Slack MCP connection
-npm run auth -- jira           # Jira OAuth flow
-npm run auth -- slack          # Slack OAuth flow
-npm run auth:force -- jira     # clear tokens and re-authenticate
-npm run tools -- jira          # list available Jira MCP tools
-npm run tools -- slack         # list available Slack MCP tools
+npm run check -- jira            # verify Jira MCP connection
+npm run check -- slack           # verify Slack MCP connection
+npm run check -- notion          # verify Notion MCP connection
+npm run auth -- jira             # Jira OAuth flow
+npm run auth -- slack            # Slack OAuth flow
+npm run auth -- notion           # Notion OAuth flow
+npm run auth:force -- jira       # clear tokens and re-authenticate
+npm run tools -- jira            # list available MCP tools
 npm run tools -- jira --verbose  # list tools with full parameter schemas
 ```
