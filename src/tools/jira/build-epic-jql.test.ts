@@ -19,10 +19,10 @@ describe("build_epic_jql", () => {
     );
   });
 
-  it("appends assignee filter when provided", async () => {
+  it("applies assignee filter to children only, not the epic itself", async () => {
     const result = await execute({ epicKeys: ["PROJ-100"], assignee: "712020:00000000-0000-0000-0000-000000000001" }) as { jql: string };
     expect(result.jql).toBe(
-      '(key in (PROJ-100) OR parent in (PROJ-100)) AND assignee = "712020:00000000-0000-0000-0000-000000000001" ORDER BY issuetype ASC, status ASC'
+      'key in (PROJ-100) OR (parent in (PROJ-100) AND assignee = "712020:00000000-0000-0000-0000-000000000001") ORDER BY issuetype ASC, status ASC'
     );
   });
 
@@ -39,10 +39,10 @@ describe("build_epic_jql", () => {
       .rejects.toThrow("looks like a display name");
   });
 
-  it("appends statusCategory filter when excludeClosed is true", async () => {
+  it("applies excludeClosed to children only, not the epic itself", async () => {
     const result = await execute({ epicKeys: ["PROJ-100"], excludeClosed: true }) as { jql: string };
     expect(result.jql).toBe(
-      "(key in (PROJ-100) OR parent in (PROJ-100)) AND statusCategory != Done ORDER BY issuetype ASC, status ASC"
+      "key in (PROJ-100) OR (parent in (PROJ-100) AND statusCategory != Done) ORDER BY issuetype ASC, status ASC"
     );
   });
 

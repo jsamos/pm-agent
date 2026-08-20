@@ -49,19 +49,20 @@ export const buildEpicJqlTool: Tool = {
     }
 
     const keyList = epicKeys.join(", ");
-    const clauses: string[] = [];
 
-    clauses.push(`(key in (${keyList}) OR parent in (${keyList}))`);
+    const hasChildFilters = !!assignee || !!excludeClosed;
 
-    if (assignee) {
-      clauses.push(`assignee = "${assignee}"`);
+    let jql: string;
+    if (hasChildFilters) {
+      const childClauses = [`parent in (${keyList})`];
+      if (assignee) childClauses.push(`assignee = "${assignee}"`);
+      if (excludeClosed) childClauses.push(`statusCategory != Done`);
+      jql = `key in (${keyList}) OR (${childClauses.join(" AND ")})`;
+    } else {
+      jql = `(key in (${keyList}) OR parent in (${keyList}))`;
     }
 
-    if (excludeClosed) {
-      clauses.push(`statusCategory != Done`);
-    }
-
-    const jql = clauses.join(" AND ") + " ORDER BY issuetype ASC, status ASC";
+    jql += " ORDER BY issuetype ASC, status ASC";
 
     return { jql, epicKeys, assigneeFiltered: !!assignee };
   },
