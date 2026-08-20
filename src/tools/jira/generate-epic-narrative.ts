@@ -101,12 +101,20 @@ export const generateEpicNarrativeTool: Tool = {
       throw new Error("group_issues result has no groups.");
     }
 
-    const getSubGroup = (group: IssueGroup, key: string): JiraIssue[] =>
-      group.subGroups?.find((s) => s.groupKey === key)?.issues || [];
+    const isSingleLevel = grouped.groupBy.length === 1 && grouped.groupBy[0] === "status";
 
-    const done = grouped.groups.flatMap((g) => getSubGroup(g, "done"));
-    const inMotion = grouped.groups.flatMap((g) => getSubGroup(g, "in_progress"));
-    const notStarted = grouped.groups.flatMap((g) => getSubGroup(g, "not_started"));
+    const getIssuesByStatus = (key: string): JiraIssue[] => {
+      if (isSingleLevel) {
+        return grouped.groups.find((g) => g.groupKey === key)?.issues || [];
+      }
+      return grouped.groups.flatMap(
+        (g) => g.subGroups?.find((s) => s.groupKey === key)?.issues || []
+      );
+    };
+
+    const done = getIssuesByStatus("done");
+    const inMotion = getIssuesByStatus("in_progress");
+    const notStarted = getIssuesByStatus("not_started");
 
     const jiraBase = ((context.config.issueLinkBase as string) || "https://your-org.atlassian.net/browse").replace(/\/+$/, "");
     const narrativeCfg = (context.config.narrative as Record<string, unknown>) || {};
