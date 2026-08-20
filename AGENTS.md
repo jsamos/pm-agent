@@ -1,5 +1,15 @@
 # Agent Instructions
 
+## New Features
+
+Before building a new feature or integration, write specs first in `openspec/`:
+
+1. **Proposal** (`openspec/changes/<name>/proposal.md`) — Intent, scope, and out-of-scope boundaries.
+2. **Behavioral spec** (`openspec/specs/<name>/spec.md`) — Requirements and scenarios using RFC 2119 keywords (SHALL, MUST, MAY). Copy into `openspec/changes/<name>/specs/<name>/spec.md` as well.
+3. **Design** (`openspec/changes/<name>/design.md`) — Architecture, tools to create, files to modify, auth, documentation, and tests.
+
+Commit the specs before writing any implementation code. See `openspec/changes/slack-send-message/` or `openspec/changes/notion-pages/` for examples.
+
 ## Tests
 
 Run the full test suite before committing any change to `src/`:
