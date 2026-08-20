@@ -10,7 +10,9 @@ npm test
 
 This runs `vitest run` across all `*.test.ts` files. All tests must pass.
 
-If you modify any tool in `src/tools/` or any assembly/rendering logic, check that the corresponding test file exists and covers the change. Add tests for new pure functions — especially anything that transforms data or assembles output.
+If you modify any tool in `src/tools/` or any assembly/rendering logic, check that the corresponding test file exists and covers the change.
+
+**Rule of thumb:** if a function is exported and its output is deterministic (same input → same output), it needs a test. If it only runs through an LLM call or requires a live service, it doesn't.
 
 Do not commit if tests fail. Fix the failing tests first.
 
