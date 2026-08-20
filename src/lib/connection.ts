@@ -17,6 +17,7 @@ const MCP_REMOTE_PKG = "@automattic/mcp-remote@latest";
 
 const SERVICES: Record<string, ConnectionConfig> = {
   jira: { serverUrl: "https://mcp.atlassian.com/v1/mcp/authv2", name: "atlassian" },
+  notion: { serverUrl: "https://mcp.notion.com/mcp", name: "notion" },
   slack: {
     serverUrl: "https://mcp.slack.com/mcp",
     name: "slack",
