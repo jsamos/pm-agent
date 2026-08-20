@@ -61,9 +61,7 @@ npm run check -- jira   # verify Jira connection
 npm run check -- slack  # verify Slack connection
 ```
 
-> **Finding your Cloud ID:** Visit `https://your-org.atlassian.net/_edge/tenant_info` in a browser while logged in. The `cloudId` field in the JSON response is what goes in `jira.json`.
->
-> **Slack setup:** Create a Slack app at `api.slack.com/apps`, enable MCP server access under the app's Agent & AI Tools settings, and add your Client ID/Secret to `.env`.
+See the detailed setup guides: [Jira](docs/jira-setup.md) | [Slack](docs/slack-setup.md)
 
 ### Usage
 
