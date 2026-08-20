@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assembleEpicMarkdown, type EpicNarrativeParsed } from "./generate-epic-narrative.js";
+import { assembleEpicMarkdown, type EpicNarrativeParsed, type EpicHeader } from "./generate-epic-narrative.js";
 
 describe("assembleEpicMarkdown", () => {
   it("renders all sections when data and prose are present", () => {
@@ -97,5 +97,62 @@ describe("assembleEpicMarkdown", () => {
     expect(md).toContain("---");
     const parts = md.split("\n\n---\n\n");
     expect(parts).toHaveLength(2);
+  });
+
+  it("renders H1 header with epic link when header is provided", () => {
+    const header: EpicHeader = {
+      key: "PROJ-100",
+      summary: "Notification System",
+      jiraBase: "https://example.atlassian.net/browse",
+    };
+    const parsed: EpicNarrativeParsed = {
+      sectionType: "outcome",
+      section: "Delivers notifications.",
+    };
+
+    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 0, notStarted: 0 }, header);
+    expect(md).toContain("# Notification System");
+    expect(md).toContain("[PROJ-100](https://example.atlassian.net/browse/PROJ-100)");
+    expect(md).not.toContain("Assignee");
+  });
+
+  it("includes assignee line when header has assignee", () => {
+    const header: EpicHeader = {
+      key: "PROJ-200",
+      summary: "Data Pipeline",
+      jiraBase: "https://example.atlassian.net/browse",
+      assignee: "Alice Martin",
+    };
+    const parsed: EpicNarrativeParsed = { section: "Overview." };
+
+    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 0, notStarted: 0 }, header);
+    expect(md).toContain("# Data Pipeline");
+    expect(md).toContain("[PROJ-200]");
+    expect(md).toContain("**Assignee:** Alice Martin");
+  });
+
+  it("omits assignee line when assignee is null", () => {
+    const header: EpicHeader = {
+      key: "PROJ-300",
+      summary: "Search Feature",
+      jiraBase: "https://example.atlassian.net/browse",
+      assignee: null,
+    };
+    const parsed: EpicNarrativeParsed = { section: "Overview." };
+
+    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 0, notStarted: 0 }, header);
+    expect(md).toContain("# Search Feature");
+    expect(md).not.toContain("Assignee");
+  });
+
+  it("renders without header when header is omitted", () => {
+    const parsed: EpicNarrativeParsed = {
+      sectionType: "outcome",
+      section: "Overview.",
+    };
+
+    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 0, notStarted: 0 });
+    expect(md).not.toMatch(/^# /m);
+    expect(md).toContain("## Outcome");
   });
 });

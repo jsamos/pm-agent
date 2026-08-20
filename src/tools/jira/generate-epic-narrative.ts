@@ -38,11 +38,26 @@ export interface EpicNarrativeParsed {
   notStarted?: string[];
 }
 
+export interface EpicHeader {
+  key: string;
+  summary: string;
+  jiraBase: string;
+  assignee?: string | null;
+}
+
 export function assembleEpicMarkdown(
   parsed: EpicNarrativeParsed,
   counts: { done: number; inMotion: number; notStarted: number },
+  header?: EpicHeader,
 ): string {
   const md: string[] = [];
+
+  if (header) {
+    md.push(`# ${header.summary}`);
+    const link = `[${header.key}](${header.jiraBase}/${header.key})`;
+    const assigneeLine = header.assignee ? `\n**Assignee:** ${header.assignee}` : "";
+    md.push(link + assigneeLine);
+  }
 
   if (parsed.section) {
     const heading = parsed.sectionType === "unlock" ? "Unlock" : "Outcome";
@@ -164,11 +179,28 @@ export const generateEpicNarrativeTool: Tool = {
       return { narrative: raw };
     }
 
+    const searchEntry = [...log].reverse().find((tc) => tc.tool === "search_jira_issues");
+    const searchResult = searchEntry?.result as { issues?: JiraIssue[] } | undefined;
+    const allIssues = searchResult?.issues || [];
+    const epicIssue = allIssues.find((i) => i.issueType === "Epic");
+
+    const buildEntry = [...log].reverse().find((tc) => tc.tool === "build_epic_jql");
+    const buildResult = buildEntry?.result as { assigneeFiltered?: boolean } | undefined;
+    const assigneeFiltered = buildResult?.assigneeFiltered;
+
+    const resolveEntry = [...log].reverse().find((tc) => tc.tool === "resolve_assignees");
+    const resolveResult = resolveEntry?.result as { resolved?: { name: string }[] } | undefined;
+    const filteredAssignee = assigneeFiltered && resolveResult?.resolved?.[0]?.name;
+
+    const header: EpicHeader | undefined = epicIssue
+      ? { key: epicIssue.key, summary: epicIssue.summary, jiraBase, assignee: filteredAssignee || null }
+      : undefined;
+
     let narrative = assembleEpicMarkdown(parsed, {
       done: done.length,
       inMotion: inMotion.length,
       notStarted: notStarted.length,
-    });
+    }, header);
 
     const diff = log ? extractDiffFromLog(log) : null;
     if (diff) {
