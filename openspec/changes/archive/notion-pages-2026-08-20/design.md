@@ -1,6 +1,6 @@
 # Notion Pages Integration
 
-**Status: Draft**
+**Status: Archived** — Implemented in commit `9930c4d`.
 
 Depends on: existing multi-service MCP infrastructure (`connection.ts`)
 
