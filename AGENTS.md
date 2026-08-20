@@ -12,7 +12,7 @@ This runs `vitest run` across all `*.test.ts` files. All tests must pass.
 
 If you modify any tool in `src/tools/` or any assembly/rendering logic, check that the corresponding test file exists and covers the change.
 
-**Rule of thumb:** if a function is exported and its output is deterministic (same input → same output), it needs a test. If it only runs through an LLM call or requires a live service, it doesn't.
+**Rule of thumb:** if the change affects what the user sees — new output, different format, new behavior — add or update tests. Mock LLM responses and external services when testing tool `execute` flows; don't skip tests just because the code path involves an LLM call. See `generate-epic-narrative.test.ts` for the pattern: build a `toolCallLog` with realistic fixtures, mock `context.llm.generate` to return a canned JSON string, and assert on the final output.
 
 Do not commit if tests fail. Fix the failing tests first.
 
