@@ -2,7 +2,7 @@
 
 An infrastructure layer for building LLM-driven automation. A single agent with a unified tool registry interprets natural language requests, loads workflow recipes on demand, and orchestrates multi-step pipelines — while structural guardrails keep the LLM within configured boundaries.
 
-Currently wired to Jira via Atlassian's MCP server. The architecture is service-agnostic: adding a new integration means building tools, not changing infrastructure.
+Currently wired to Jira and Slack via their hosted MCP servers. The architecture is service-agnostic: adding a new integration means building tools, not changing infrastructure.
 
 ## Quick start
 
@@ -43,21 +43,27 @@ cp src/config/roster.example.json src/config/roster.json
 }
 ```
 
-Set your OpenAI key:
+Create a `.env` file with your keys:
 ```bash
-export OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-...
+SLACK_CLIENT_ID=your-slack-app-client-id
+SLACK_CLIENT_SECRET=your-slack-app-client-secret
 ```
 
 ### Authentication
 
-The first time you connect, the Atlassian MCP client will open a browser for OAuth:
+Each service authenticates independently via OAuth. The first connection opens a browser:
 
 ```bash
-npm run auth          # interactive OAuth flow
-npm run check         # verify the connection works
+npm run auth -- jira    # Atlassian OAuth flow
+npm run auth -- slack   # Slack OAuth flow
+npm run check -- jira   # verify Jira connection
+npm run check -- slack  # verify Slack connection
 ```
 
 > **Finding your Cloud ID:** Visit `https://your-org.atlassian.net/_edge/tenant_info` in a browser while logged in. The `cloudId` field in the JSON response is what goes in `jira.json`.
+>
+> **Slack setup:** Create a Slack app at `api.slack.com/apps`, enable MCP server access under the app's Agent & AI Tools settings, and add your Client ID/Secret to `.env`.
 
 ### Usage
 
@@ -66,6 +72,7 @@ npm run agent -- "what's the team's progress this sprint"
 npm run agent -- "what's Alice working on this sprint"
 npm run agent -- "generate an epic narrative for PROJ-100"
 npm run agent -- "add Bob Chen to the roster"
+npm run agent -- "send Alice a Slack message with the sprint report"
 ```
 
 Pipe output to a file:
@@ -113,7 +120,7 @@ done
 
 Tools return **summaries** to the LLM (e.g. "Found 27 issues across 6 epics") while full payloads stay in an internal log. Downstream tools read structured data from the log directly — the LLM never relays raw data.
 
-See [`docs/superpowers/specs/harness-architecture.md`](docs/superpowers/specs/harness-architecture.md) for the full design philosophy.
+See [`openspec/specs/harness-architecture/spec.md`](openspec/specs/harness-architecture/spec.md) for the full design philosophy.
 
 ## Project structure
 
@@ -127,6 +134,7 @@ src/
 ├── skills/         Multi-step workflow recipes (loaded on demand)
 └── tools/
     ├── jira/       Jira tools (search, group, narrative, snapshots, etc.)
+    ├── slack/      Slack tools (user search, messaging)
     ├── roster/     Team roster management
     └── skills/     The load_skill tool
 ```
@@ -144,6 +152,8 @@ src/
 | `group_issues` | Pure | Group issues by epic, status, assignee |
 | `generate_sprint_narrative` | Composite | LLM prose + deterministic markdown assembly |
 | `generate_epic_narrative` | Composite | LLM prose + deterministic markdown assembly |
+| `search_slack_users` | External | Search Slack users by name or email |
+| `send_slack_message` | External | Send a Slack message or DM; supports `contentFrom` to forward prior tool output |
 | `read_roster` | Local I/O | Read team roster from disk |
 | `write_roster` | Local I/O | Add/remove roster entries |
 | `load_skill` | Local I/O | Load a workflow recipe by name |
@@ -163,14 +173,17 @@ npm test              # run all tests
 npm run test:watch    # watch mode
 ```
 
-122 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, and skill loading. No tests make LLM or network calls.
+148 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, skill loading, and execute-level flows with mocked LLM responses. No tests make live LLM or network calls.
 
 ## Utility scripts
 
 ```bash
-npm run check         # verify Atlassian MCP connection
-npm run auth          # interactive OAuth flow
-npm run auth:force    # clear tokens and re-authenticate
-npm run tools         # list available MCP tools
-npm run tools:verbose # list tools with full parameter schemas
+npm run check -- jira          # verify Jira MCP connection
+npm run check -- slack         # verify Slack MCP connection
+npm run auth -- jira           # Jira OAuth flow
+npm run auth -- slack          # Slack OAuth flow
+npm run auth:force -- jira     # clear tokens and re-authenticate
+npm run tools -- jira          # list available Jira MCP tools
+npm run tools -- slack         # list available Slack MCP tools
+npm run tools -- jira --verbose  # list tools with full parameter schemas
 ```
