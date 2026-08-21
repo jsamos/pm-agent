@@ -1,7 +1,11 @@
 Sprint narrative (follow this order EXACTLY):
   1. resolve_assignees to get account IDs
   2. build_sprint_jql to construct the query
-     - Consider the user's intent: are they asking about everything in the sprint, or a subset? Use statusCategories to filter. For example, if the user wants remaining/unfinished work, pass statusCategories: ["In Progress", "To Do"]. Omit statusCategories to include all.
+     - Consider the user's intent and use statusCategories to filter accordingly:
+       - Everything in the sprint → omit statusCategories
+       - Remaining/unfinished work → statusCategories: ["In Progress", "To Do"]
+       - Only completed work → statusCategories: ["Done"]
+       - Only in-progress work → statusCategories: ["In Progress"]
   3. search_jira_issues to fetch issues (pass resolveParentsTo: "Epic")
   4. jira_search_snapshots({ action: "diff" }) — MUST come BEFORE save
      Read the diff summary, then decide:
