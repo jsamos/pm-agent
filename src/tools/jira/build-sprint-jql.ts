@@ -18,16 +18,17 @@ export const buildSprintJqlTool: Tool = {
         items: { type: "string" },
         description: "Jira account IDs to filter by (required)",
       },
-      excludeClosed: {
-        type: "boolean",
-        description: "If true, exclude issues where statusCategory = Done (default: false)",
+      statusCategories: {
+        type: "array",
+        items: { type: "string" },
+        description: "Status categories to include (e.g. [\"In Progress\", \"To Do\"]). Omit to include all.",
       },
     },
     required: ["assignees"],
   },
 
   async execute(args, context) {
-    const { assignees, excludeClosed } = args as { assignees: string[]; excludeClosed?: boolean };
+    const { assignees, statusCategories } = args as { assignees: string[]; statusCategories?: string[] };
 
     const configProjects = (context.config.projects as string[]) || [];
     if (configProjects.length === 0) {
@@ -51,8 +52,9 @@ export const buildSprintJqlTool: Tool = {
     const quoted = assignees.map((id) => `"${id}"`).join(", ");
     clauses.push(`assignee in (${quoted})`);
 
-    if (excludeClosed) {
-      clauses.push(`statusCategory != Done`);
+    if (statusCategories && statusCategories.length > 0) {
+      const quoted = statusCategories.map((c) => `"${c}"`).join(", ");
+      clauses.push(`statusCategory in (${quoted})`);
     }
 
     const jql = clauses.join(" AND ") + " ORDER BY status ASC";

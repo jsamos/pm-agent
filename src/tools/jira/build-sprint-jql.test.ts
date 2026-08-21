@@ -34,15 +34,27 @@ describe("build_sprint_jql", () => {
     await expect(execute({ assignees: ["acc-1"] }, { projects: [] })).rejects.toThrow("No projects configured");
   });
 
-  it("appends statusCategory filter when excludeClosed is true", async () => {
-    const result = await execute({ assignees: ["acc-1"], excludeClosed: true }) as { jql: string };
+  it("filters by a single statusCategory", async () => {
+    const result = await execute({ assignees: ["acc-1"], statusCategories: ["In Progress"] }) as { jql: string };
     expect(result.jql).toBe(
-      'project in (PROJ, WORK) AND sprint in openSprints() AND assignee in ("acc-1") AND statusCategory != Done ORDER BY status ASC'
+      'project in (PROJ, WORK) AND sprint in openSprints() AND assignee in ("acc-1") AND statusCategory in ("In Progress") ORDER BY status ASC'
     );
   });
 
-  it("omits statusCategory filter when excludeClosed is false", async () => {
-    const result = await execute({ assignees: ["acc-1"], excludeClosed: false }) as { jql: string };
+  it("filters by multiple statusCategories", async () => {
+    const result = await execute({ assignees: ["acc-1"], statusCategories: ["In Progress", "To Do"] }) as { jql: string };
+    expect(result.jql).toBe(
+      'project in (PROJ, WORK) AND sprint in openSprints() AND assignee in ("acc-1") AND statusCategory in ("In Progress", "To Do") ORDER BY status ASC'
+    );
+  });
+
+  it("omits statusCategory filter when statusCategories is empty", async () => {
+    const result = await execute({ assignees: ["acc-1"], statusCategories: [] }) as { jql: string };
+    expect(result.jql).not.toContain("statusCategory");
+  });
+
+  it("omits statusCategory filter when statusCategories is omitted", async () => {
+    const result = await execute({ assignees: ["acc-1"] }) as { jql: string };
     expect(result.jql).not.toContain("statusCategory");
   });
 });

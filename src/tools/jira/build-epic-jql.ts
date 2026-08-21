@@ -26,16 +26,17 @@ export const buildEpicJqlTool: Tool = {
         type: "string",
         description: "Optional Jira account ID to filter by assignee",
       },
-      excludeClosed: {
-        type: "boolean",
-        description: "If true, exclude issues where statusCategory = Done (default: false)",
+      statusCategories: {
+        type: "array",
+        items: { type: "string" },
+        description: "Status categories to include for child issues (e.g. [\"In Progress\", \"To Do\"]). Omit to include all. The epic itself is always returned.",
       },
     },
     required: ["epicKeys"],
   },
 
   async execute(args) {
-    const { epicKeys, assignee, excludeClosed } = args as { epicKeys: string[]; assignee?: string; excludeClosed?: boolean };
+    const { epicKeys, assignee, statusCategories } = args as { epicKeys: string[]; assignee?: string; statusCategories?: string[] };
 
     if (!epicKeys || epicKeys.length === 0) {
       throw new Error("At least one epic key is required");
@@ -50,13 +51,16 @@ export const buildEpicJqlTool: Tool = {
 
     const keyList = epicKeys.join(", ");
 
-    const hasChildFilters = !!assignee || !!excludeClosed;
+    const hasChildFilters = !!assignee || (statusCategories && statusCategories.length > 0);
 
     let jql: string;
     if (hasChildFilters) {
       const childClauses = [`parent in (${keyList})`];
       if (assignee) childClauses.push(`assignee = "${assignee}"`);
-      if (excludeClosed) childClauses.push(`statusCategory != Done`);
+      if (statusCategories && statusCategories.length > 0) {
+        const quoted = statusCategories.map((c) => `"${c}"`).join(", ");
+        childClauses.push(`statusCategory in (${quoted})`);
+      }
       jql = `key in (${keyList}) OR (${childClauses.join(" AND ")})`;
     } else {
       jql = `(key in (${keyList}) OR parent in (${keyList}))`;

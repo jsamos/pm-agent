@@ -39,15 +39,38 @@ describe("build_epic_jql", () => {
       .rejects.toThrow("looks like a display name");
   });
 
-  it("applies excludeClosed to children only, not the epic itself", async () => {
-    const result = await execute({ epicKeys: ["PROJ-100"], excludeClosed: true }) as { jql: string };
+  it("applies statusCategories to children only, not the epic itself", async () => {
+    const result = await execute({ epicKeys: ["PROJ-100"], statusCategories: ["In Progress"] }) as { jql: string };
     expect(result.jql).toBe(
-      "key in (PROJ-100) OR (parent in (PROJ-100) AND statusCategory != Done) ORDER BY issuetype ASC, status ASC"
+      'key in (PROJ-100) OR (parent in (PROJ-100) AND statusCategory in ("In Progress")) ORDER BY issuetype ASC, status ASC'
     );
   });
 
-  it("omits statusCategory filter when excludeClosed is false", async () => {
-    const result = await execute({ epicKeys: ["PROJ-100"], excludeClosed: false }) as { jql: string };
+  it("supports multiple statusCategories on children", async () => {
+    const result = await execute({ epicKeys: ["PROJ-100"], statusCategories: ["In Progress", "To Do"] }) as { jql: string };
+    expect(result.jql).toBe(
+      'key in (PROJ-100) OR (parent in (PROJ-100) AND statusCategory in ("In Progress", "To Do")) ORDER BY issuetype ASC, status ASC'
+    );
+  });
+
+  it("combines assignee and statusCategories on children", async () => {
+    const result = await execute({
+      epicKeys: ["PROJ-100"],
+      assignee: "712020:00000000-0000-0000-0000-000000000001",
+      statusCategories: ["To Do"],
+    }) as { jql: string };
+    expect(result.jql).toBe(
+      'key in (PROJ-100) OR (parent in (PROJ-100) AND assignee = "712020:00000000-0000-0000-0000-000000000001" AND statusCategory in ("To Do")) ORDER BY issuetype ASC, status ASC'
+    );
+  });
+
+  it("omits statusCategory filter when statusCategories is empty", async () => {
+    const result = await execute({ epicKeys: ["PROJ-100"], statusCategories: [] }) as { jql: string };
+    expect(result.jql).not.toContain("statusCategory");
+  });
+
+  it("omits statusCategory filter when statusCategories is omitted", async () => {
+    const result = await execute({ epicKeys: ["PROJ-100"] }) as { jql: string };
     expect(result.jql).not.toContain("statusCategory");
   });
 
