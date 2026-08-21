@@ -57,11 +57,21 @@ export function renderHeading(group: IssueGroup, outerKey: string, jiraBase: str
   return `## ${group.groupLabel}`;
 }
 
+export type ProseEntry = string | { subKey: string; prose: string };
+
 export interface GroupNarrative {
   groupKey: string;
-  delivered?: string[];
-  inProgress?: string[];
-  notStarted?: string[];
+  delivered?: ProseEntry[];
+  inProgress?: ProseEntry[];
+  notStarted?: ProseEntry[];
+}
+
+function renderProseEntries(entries: ProseEntry[]): string {
+  return entries
+    .map((e) =>
+      typeof e === "string" ? e : `**${e.subKey}**\n\n${e.prose}`
+    )
+    .join("\n\n");
 }
 
 export function linkifyIssueKeys(text: string, issueKeys: Set<string>, jiraBase: string): string {
@@ -134,13 +144,15 @@ export function assembleMarkdown(
     }
 
     if (done.length > 0) {
-      sections.push(prose?.delivered?.join("\n\n") || "_No narrative generated._");
+      sections.push(prose?.delivered ? renderProseEntries(prose.delivered) : "_No narrative generated._");
     }
     if (inProgress.length > 0) {
-      sections.push(`### In Progress\n\n${prose?.inProgress?.join("\n\n") || "_No narrative generated._"}`);
+      const body = prose?.inProgress ? renderProseEntries(prose.inProgress) : "_No narrative generated._";
+      sections.push(`### In Progress\n\n${body}`);
     }
     if (notStarted.length > 0) {
-      sections.push(`### Not Started\n\n${prose?.notStarted?.join("\n\n") || "_No narrative generated._"}`);
+      const body = prose?.notStarted ? renderProseEntries(prose.notStarted) : "_No narrative generated._";
+      sections.push(`### Not Started\n\n${body}`);
     }
 
     return sections.join("\n\n");
@@ -230,17 +242,26 @@ export const generateSprintNarrativeTool: Tool = {
       return `  - ${i.key} [${i.issueType}] (${i.assignee || "Unassigned"}) [Status: ${i.status}]${epic}: ${i.summary}\n    ${desc}`;
     };
 
-    const sortByEpic = (issues: JiraIssue[]) => [...issues].sort((a, b) => {
-      const aKey = a.parent?.issueType === "Epic" ? a.parent.key : "_none_";
-      const bKey = b.parent?.issueType === "Epic" ? b.parent.key : "_none_";
-      return aKey.localeCompare(bKey);
-    });
-
     const groupNoun = outerKey === "epic" ? "epic" : "team member";
     const dataSections: string[] = [
       `Issues are grouped by ${groupNoun}.`,
       `JIRA_BASE: ${jiraBase}`,
     ];
+
+    function formatStatusSection(label: string, statusGroup: IssueGroup): string[] {
+      const lines: string[] = [];
+      if (statusGroup.subGroups && statusGroup.subGroups.length > 0) {
+        lines.push(`  ${label} (${statusGroup.issues.length}):`);
+        for (const sub of statusGroup.subGroups) {
+          lines.push(`    [${sub.groupLabel}] (${sub.issues.length}):`);
+          lines.push(...sub.issues.map(formatIssue));
+        }
+      } else {
+        lines.push(`  ${label} (${statusGroup.issues.length}):`);
+        lines.push(...statusGroup.issues.map(formatIssue));
+      }
+      return lines;
+    }
 
     for (const group of grouped.groups) {
       const lines: string[] = [];
@@ -248,26 +269,13 @@ export const generateSprintNarrativeTool: Tool = {
       lines.push(`GROUP LABEL: ${group.groupLabel}`);
 
       if (hasStatusSub) {
-        const done = getSubGroupIssues(group, "done");
-        const inProgress = getSubGroupIssues(group, "in_progress");
-        const notStarted = getSubGroupIssues(group, "not_started");
+        const done = group.subGroups?.find((s) => s.groupKey === "done");
+        const inProgress = group.subGroups?.find((s) => s.groupKey === "in_progress");
+        const notStarted = group.subGroups?.find((s) => s.groupKey === "not_started");
 
-        const sortedDone = outerKey === "assignee" ? sortByEpic(done) : done;
-        const sortedInProgress = outerKey === "assignee" ? sortByEpic(inProgress) : inProgress;
-        const sortedNotStarted = outerKey === "assignee" ? sortByEpic(notStarted) : notStarted;
-
-        if (sortedDone.length > 0) {
-          lines.push(`  Done (${sortedDone.length}):`);
-          lines.push(...sortedDone.map(formatIssue));
-        }
-        if (sortedInProgress.length > 0) {
-          lines.push(`  In Progress (${sortedInProgress.length}):`);
-          lines.push(...sortedInProgress.map(formatIssue));
-        }
-        if (sortedNotStarted.length > 0) {
-          lines.push(`  Not Started (${sortedNotStarted.length}):`);
-          lines.push(...sortedNotStarted.map(formatIssue));
-        }
+        if (done && done.issues.length > 0) lines.push(...formatStatusSection("Done", done));
+        if (inProgress && inProgress.issues.length > 0) lines.push(...formatStatusSection("In Progress", inProgress));
+        if (notStarted && notStarted.issues.length > 0) lines.push(...formatStatusSection("Not Started", notStarted));
       } else {
         const all = collectIssues(group);
         lines.push(...all.map(formatIssue));
