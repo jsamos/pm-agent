@@ -243,52 +243,6 @@ describe("assembleMarkdown", () => {
     expect(md).toContain("### Not Started\n\nPending prose.");
   });
 
-  it("renders sub-keyed prose entries with bold labels", () => {
-    const grouped = makeGrouped([
-      makeEpicGroup("alice", "Alice Martin", {
-        inProgress: [makeIssue("X-1"), makeIssue("X-2")],
-      }),
-    ], ["assignee", "status"]);
-
-    const parsedGroups: GroupNarrative[] = [
-      {
-        groupKey: "alice",
-        inProgress: [
-          { subKey: "Clean Claims", prose: "Frontend work underway." },
-          { subKey: "Auto Attach", prose: "Image selection improving." },
-        ],
-      },
-    ];
-
-    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
-    expect(md).toContain("**Clean Claims**\n\nFrontend work underway.");
-    expect(md).toContain("**Auto Attach**\n\nImage selection improving.");
-    expect(md).not.toContain("_No narrative generated._");
-  });
-
-  it("handles mix of plain strings and sub-keyed entries", () => {
-    const grouped = makeGrouped([
-      makeEpicGroup("PROJ-1", "Alpha", {
-        done: [makeIssue("X-1")],
-        inProgress: [makeIssue("X-2")],
-      }),
-    ]);
-
-    const parsedGroups: GroupNarrative[] = [
-      {
-        groupKey: "PROJ-1",
-        delivered: ["Plain string delivery."],
-        inProgress: [
-          { subKey: "Feature A", prose: "Working on A." },
-        ],
-      },
-    ];
-
-    const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
-    expect(md).toContain("Plain string delivery.");
-    expect(md).toContain("**Feature A**\n\nWorking on A.");
-  });
-
   it("handles empty parsedGroups gracefully (all fallback)", () => {
     const grouped = makeGrouped([
       makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] }),

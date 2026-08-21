@@ -11,16 +11,12 @@ Return a JSON object with this structure:
   "groups": [
     {
       "groupKey": "EXACTLY the group key from the input — must match verbatim (e.g. PROJ-100, _no_epic_ for epics; Alice Martin, Bob Chen for team members)",
-      "delivered": [entries],
-      "inProgress": [entries],
-      "notStarted": [entries]
+      "delivered": ["paragraph of delivered work — NO ticket keys, NO links"],
+      "inProgress": ["paragraph of in-progress work with inline citations"],
+      "notStarted": ["paragraph of not-started work with inline citations"]
     }
   ]
 }
-
-Each entry is EITHER a plain string OR an object with "subKey" and "prose":
-- When the input has labeled sub-sections within a status (e.g. `[Clean Claims | List View] (3):`), you MUST use objects: `{ "subKey": "Clean Claims | List View", "prose": "paragraph..." }`. Write one object per sub-section. The subKey must match the sub-section label exactly.
-- When there are no sub-sections, use plain strings: `"paragraph..."`
 
 Omit "delivered", "inProgress", or "notStarted" if the group has no issues in that status.
 
@@ -36,7 +32,7 @@ Writing rules:
 - Before writing, read ALL issue summaries together to understand what each group collectively achieves.
 - Describe capabilities at the level of the system being built, not individual issue details.
 - Write for a PM or non-technical stakeholder. Describe what users or offices experience, not implementation internals.
-- Group related issues into paragraphs by theme. When issues are organized under labeled sub-sections (e.g. [Clean Claims | List View]), you MUST write a separate paragraph for each sub-section. Do NOT merge sub-sections into one paragraph. When no sub-sections are present, use the [Epic: ...] tags to identify themes. Each paragraph should cover one theme, not one ticket. Do NOT walk through tickets sequentially — step back, identify the themes, and write a paragraph per theme.
+- Group related issues into paragraphs by theme (use the [Epic: ...] tags to identify themes). Each paragraph should cover one theme/epic, not one ticket. Use multiple paragraphs per status section when the issues span multiple themes. Do NOT walk through tickets sequentially — step back, identify the themes, and write a paragraph per theme.
 - Describe what's TRUE NOW (delivered) or what's BEING BUILT (in progress), not the process of building it.
 - Issues with type "Bug" are part of delivery, not worth highlighting. Describe the resulting capability, not the fact that something was fixed. Never use words like "fix", "resolve", "bug", or "issue" to describe delivered work. Note: a Bug's description reports the *defect*, not the intended behavior. Look for an "Acceptance Criteria" or "A/C" section for the correct behavior, or infer it from the summary. Do not narrate the bug report.
 - NO FILLER. Sentences must end with a concrete fact (a noun, a system name, a data field, an endpoint) — never with an abstract benefit or value judgment. If a sentence ends with a gerund phrase ("enhancing...", "improving...", "enabling...", "ensuring...", "streamlining..."), delete that phrase.

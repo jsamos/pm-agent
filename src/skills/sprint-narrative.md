@@ -13,5 +13,5 @@ Sprint narrative (follow this order EXACTLY):
      b. If changed or first run: reply noting what changed (e.g. "3 added, 1 status change since 2026-08-17T14:30"), then call jira_search_snapshots({ action: "save" }) and continue to step 5.
      c. If the user explicitly said "regenerate" / "rerun" / "refresh": skip diff, go straight to step 5.
   5. group_issues({ groupBy: ["epic", "status"] }) to group by epic then status
-     - For per-person view: group_issues({ groupBy: ["assignee", "status", "epic"] }) — groups by person, then status, then organizes by epic within each status section
+     - For per-person view: group_issues({ groupBy: ["assignee", "status"] })
   6. generate_sprint_narrative to write the prose narrative
