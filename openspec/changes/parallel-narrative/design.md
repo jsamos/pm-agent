@@ -5,7 +5,8 @@
 ## Addendum: Divergences from original design
 
 - The orchestrator skill (`sprint-narrative.md`) needed an explicit "call group_issues EXACTLY ONCE" instruction to prevent the LLM from calling it twice (once per grouping mode) in a single run.
-- 3rd-level sub-sections (epic within assignee) were not implemented in this change — the parallel architecture enables it cleanly but it's deferred.
+- 3rd-level grouping (`["assignee", "status", "epic"]`) was implemented by flattening into (assignee × epic) units — one LLM call per unit. The assembly renders epic sub-headings deterministically. Relying on the LLM to organize by epic from tags alone proved unreliable.
+- `search_jira_issues` was updated to auto-read JQL from the last `build_sprint_jql` or `build_epic_jql` result in the tool call log, preventing the orchestrator LLM from corrupting account IDs when re-typing the query.
 
 ## Architecture
 

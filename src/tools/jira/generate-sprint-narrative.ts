@@ -187,22 +187,24 @@ export function assembleMarkdown(
   };
 }
 
+function formatIssue(i: JiraIssue, outerKey: string, descLimit: number): string {
+  const desc = i.description ? i.description.slice(0, descLimit) : "(no description)";
+  let epic = "";
+  if (i.parent?.issueType === "Epic") {
+    epic = outerKey === "assignee"
+      ? ` [Epic: ${i.parent.key} — ${i.parent.summary}]`
+      : ` [Epic: ${i.parent.key}]`;
+  }
+  return `  - ${i.key} [${i.issueType}] (${i.assignee || "Unassigned"}) [Status: ${i.status}]${epic}: ${i.summary}\n    ${desc}`;
+}
+
 export function buildGroupMessage(
   group: IssueGroup,
   outerKey: string,
   jiraBase: string,
   descLimit: number,
 ): string {
-  const formatIssue = (i: JiraIssue) => {
-    const desc = i.description ? i.description.slice(0, descLimit) : "(no description)";
-    let epic = "";
-    if (i.parent?.issueType === "Epic") {
-      epic = outerKey === "assignee"
-        ? ` [Epic: ${i.parent.key} — ${i.parent.summary}]`
-        : ` [Epic: ${i.parent.key}]`;
-    }
-    return `  - ${i.key} [${i.issueType}] (${i.assignee || "Unassigned"}) [Status: ${i.status}]${epic}: ${i.summary}\n    ${desc}`;
-  };
+  const fmt = (i: JiraIssue) => formatIssue(i, outerKey, descLimit);
 
   const sortByEpic = (issues: JiraIssue[]) => [...issues].sort((a, b) => {
     const aKey = a.parent?.issueType === "Epic" ? a.parent.key : "_none_";
@@ -220,32 +222,172 @@ export function buildGroupMessage(
   ];
 
   if (group.subGroups) {
-    const done = getSubGroupIssues(group, "done");
-    const inProgress = getSubGroupIssues(group, "in_progress");
-    const notStarted = getSubGroupIssues(group, "not_started");
+    const statusGroups = [
+      { key: "done", label: "Done" },
+      { key: "in_progress", label: "In Progress" },
+      { key: "not_started", label: "Not Started" },
+    ];
 
-    const sortedDone = outerKey === "assignee" ? sortByEpic(done) : done;
-    const sortedInProgress = outerKey === "assignee" ? sortByEpic(inProgress) : inProgress;
-    const sortedNotStarted = outerKey === "assignee" ? sortByEpic(notStarted) : notStarted;
-
-    if (sortedDone.length > 0) {
-      lines.push(`  Done (${sortedDone.length}):`);
-      lines.push(...sortedDone.map(formatIssue));
-    }
-    if (sortedInProgress.length > 0) {
-      lines.push(`  In Progress (${sortedInProgress.length}):`);
-      lines.push(...sortedInProgress.map(formatIssue));
-    }
-    if (sortedNotStarted.length > 0) {
-      lines.push(`  Not Started (${sortedNotStarted.length}):`);
-      lines.push(...sortedNotStarted.map(formatIssue));
+    for (const { key, label } of statusGroups) {
+      const statusSub = group.subGroups.find((s) => s.groupKey === key);
+      if (!statusSub || statusSub.issues.length === 0) continue;
+      const issues = outerKey === "assignee" ? sortByEpic(statusSub.issues) : statusSub.issues;
+      lines.push(`  ${label} (${issues.length}):`);
+      lines.push(...issues.map(fmt));
     }
   } else {
     const all = collectIssues(group);
-    lines.push(...all.map(formatIssue));
+    lines.push(...all.map(fmt));
   }
 
   return lines.join("\n");
+}
+
+export interface EpicUnit {
+  assigneeKey: string;
+  assigneeLabel: string;
+  epicKey: string;
+  epicLabel: string;
+  done: JiraIssue[];
+  inProgress: JiraIssue[];
+  notStarted: JiraIssue[];
+}
+
+export function flattenToEpicUnits(grouped: GroupIssuesResult): EpicUnit[] {
+  const units: EpicUnit[] = [];
+
+  for (const assigneeGroup of grouped.groups) {
+    if (!assigneeGroup.subGroups) continue;
+
+    const epicMap = new Map<string, EpicUnit>();
+
+    for (const statusSub of assigneeGroup.subGroups) {
+      const epicSubs = statusSub.subGroups || [{ groupKey: "_no_epic_", groupLabel: "Other Work", issues: statusSub.issues }];
+
+      for (const epicSub of epicSubs) {
+        if (!epicMap.has(epicSub.groupKey)) {
+          epicMap.set(epicSub.groupKey, {
+            assigneeKey: assigneeGroup.groupKey,
+            assigneeLabel: assigneeGroup.groupLabel,
+            epicKey: epicSub.groupKey,
+            epicLabel: epicSub.groupLabel,
+            done: [],
+            inProgress: [],
+            notStarted: [],
+          });
+        }
+        const unit = epicMap.get(epicSub.groupKey)!;
+        if (statusSub.groupKey === "done") unit.done.push(...epicSub.issues);
+        else if (statusSub.groupKey === "in_progress") unit.inProgress.push(...epicSub.issues);
+        else if (statusSub.groupKey === "not_started") unit.notStarted.push(...epicSub.issues);
+      }
+    }
+
+    units.push(...epicMap.values());
+  }
+
+  return units;
+}
+
+export function buildEpicUnitMessage(unit: EpicUnit, jiraBase: string, descLimit: number): string {
+  const fmt = (i: JiraIssue) => formatIssue(i, "assignee", descLimit);
+
+  const lines: string[] = [
+    `Write prose for this team member's work on one epic.`,
+    `JIRA_BASE: ${jiraBase}`,
+    "",
+    `ASSIGNEE: ${unit.assigneeLabel}`,
+    `EPIC: ${unit.epicLabel}`,
+  ];
+
+  if (unit.done.length > 0) {
+    lines.push(`  Done (${unit.done.length}):`);
+    lines.push(...unit.done.map(fmt));
+  }
+  if (unit.inProgress.length > 0) {
+    lines.push(`  In Progress (${unit.inProgress.length}):`);
+    lines.push(...unit.inProgress.map(fmt));
+  }
+  if (unit.notStarted.length > 0) {
+    lines.push(`  Not Started (${unit.notStarted.length}):`);
+    lines.push(...unit.notStarted.map(fmt));
+  }
+
+  return lines.join("\n");
+}
+
+export function assembleThreeLevelMarkdown(
+  grouped: GroupIssuesResult,
+  units: EpicUnit[],
+  proseMap: Map<string, GroupNarrative>,
+  jiraBase: string,
+): AssembleResult {
+  const assigneeOrder = [...grouped.groups].sort((a, b) => {
+    const aSpecial = a.groupKey.startsWith("_");
+    const bSpecial = b.groupKey.startsWith("_");
+    if (aSpecial !== bSpecial) return aSpecial ? 1 : -1;
+    return a.groupLabel.localeCompare(b.groupLabel);
+  });
+
+  const allKeys = new Set<string>();
+  for (const u of units) {
+    for (const i of [...u.done, ...u.inProgress, ...u.notStarted]) allKeys.add(i.key);
+  }
+
+  const unitsByAssignee = new Map<string, EpicUnit[]>();
+  for (const u of units) {
+    if (!unitsByAssignee.has(u.assigneeKey)) unitsByAssignee.set(u.assigneeKey, []);
+    unitsByAssignee.get(u.assigneeKey)!.push(u);
+  }
+
+  const md: string[] = [];
+  let matched = 0;
+  let total = 0;
+  const unmatchedKeys: string[] = [];
+
+  for (const assigneeGroup of assigneeOrder) {
+    const assigneeUnits = unitsByAssignee.get(assigneeGroup.groupKey);
+    if (!assigneeUnits || assigneeUnits.length === 0) continue;
+
+    total++;
+    const sections: string[] = [`## ${assigneeGroup.groupLabel}`];
+
+    const statusOrder = [
+      { statusField: "done" as const, proseField: "delivered" as const, heading: null },
+      { statusField: "inProgress" as const, proseField: "inProgress" as const, heading: "### In Progress" },
+      { statusField: "notStarted" as const, proseField: "notStarted" as const, heading: "### Not Started" },
+    ];
+
+    for (const { statusField, proseField, heading } of statusOrder) {
+      const epicsWithIssues = assigneeUnits.filter((u) => u[statusField].length > 0);
+      if (epicsWithIssues.length === 0) continue;
+
+      const epicParts: string[] = [];
+      for (const u of epicsWithIssues) {
+        const key = `${u.assigneeKey}::${u.epicKey}`;
+        const prose = proseMap.get(key);
+        const text = prose?.[proseField]?.join("\n\n") || "_No narrative generated._";
+        if (prose?.[proseField]) matched++;
+        const label = u.epicKey === "_no_epic_" ? "**Other Work**" : `**${u.epicLabel}**`;
+        epicParts.push(`${label}\n\n${text}`);
+      }
+
+      if (heading) {
+        sections.push(`${heading}\n\n${epicParts.join("\n\n")}`);
+      } else {
+        sections.push(epicParts.join("\n\n"));
+      }
+    }
+
+    md.push(sections.join("\n\n"));
+  }
+
+  return {
+    markdown: linkifyIssueKeys(md.join("\n\n---\n\n"), allKeys, jiraBase),
+    matched,
+    total,
+    unmatchedKeys,
+  };
 }
 
 async function generateForGroup(
@@ -327,26 +469,96 @@ export const generateSprintNarrativeTool: Tool = {
     const narrativeCfg = (context.config.narrative as Record<string, unknown>) || {};
     const descLimit = (narrativeCfg.descriptionLimit as number) || DEFAULT_DESC_LIMIT;
     const outerKey = grouped.groupBy[0];
+    const hasThirdLevel = grouped.groupBy.length >= 3;
 
-    process.stderr.write(`  [narrative] Starting ${grouped.groups.length} parallel LLM calls...\n`);
-    const overallStart = Date.now();
+    let narrative: string;
+    let totalDelivered: number;
+    let totalInProgress: number;
+    let callCount: number;
 
-    const parsedGroups = await Promise.all(
-      grouped.groups.map((group) =>
-        generateForGroup(group, outerKey, jiraBase, descLimit, context.llm)
-      )
-    );
+    if (hasThirdLevel && outerKey === "assignee") {
+      // 3-level: one LLM call per (assignee × epic)
+      const units = flattenToEpicUnits(grouped);
+      callCount = units.length;
 
-    const overallMs = Date.now() - overallStart;
-    process.stderr.write(`  [narrative] All ${grouped.groups.length} calls complete — ${overallMs}ms total\n`);
+      process.stderr.write(`  [narrative] Starting ${callCount} parallel LLM calls (assignee × epic)...\n`);
+      const overallStart = Date.now();
 
-    const assembled = assembleMarkdown(grouped, parsedGroups, jiraBase);
+      const results = await Promise.all(
+        units.map(async (unit) => {
+          const userMessage = buildEpicUnitMessage(unit, jiraBase, descLimit);
+          const compositeKey = `${unit.assigneeKey}::${unit.epicKey}`;
 
-    if (assembled.matched < assembled.total) {
-      process.stderr.write(`  [warn] generate_sprint_narrative: ${assembled.matched}/${assembled.total} groups matched (unmatched LLM keys: ${assembled.unmatchedKeys.join(", ") || "none"})\n`);
+          trace("inner_llm_request", {
+            tool: "generate_sprint_narrative",
+            groupKey: compositeKey,
+            userMessage: userMessage.slice(0, 2000),
+          });
+
+          const llmStart = Date.now();
+          const response = await context.llm.generate([
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: userMessage },
+          ], { model: getToolModel("generate_sprint_narrative"), temperature: 0.3 });
+          const llmMs = Date.now() - llmStart;
+
+          const raw = response.content || "";
+          trace("inner_llm_call", {
+            tool: "generate_sprint_narrative",
+            groupKey: compositeKey,
+            ms: llmMs,
+            response: raw.slice(0, 2000),
+          });
+
+          process.stderr.write(`  [narrative] ${unit.assigneeLabel} / ${unit.epicLabel} — ${llmMs}ms\n`);
+
+          try {
+            const parsed = JSON.parse(extractJson(raw)) as GroupNarrative;
+            return { key: compositeKey, narrative: parsed };
+          } catch (e) {
+            process.stderr.write(`  [warn] JSON parse failed for "${compositeKey}" — ${(e as Error).message}\n`);
+            return { key: compositeKey, narrative: { groupKey: compositeKey } as GroupNarrative };
+          }
+        })
+      );
+
+      const overallMs = Date.now() - overallStart;
+      process.stderr.write(`  [narrative] All ${callCount} calls complete — ${overallMs}ms total\n`);
+
+      const proseMap = new Map<string, GroupNarrative>();
+      for (const r of results) proseMap.set(r.key, r.narrative);
+
+      const assembled = assembleThreeLevelMarkdown(grouped, units, proseMap, jiraBase);
+      narrative = assembled.markdown;
+
+      totalDelivered = units.reduce((n, u) => n + u.done.length, 0);
+      totalInProgress = units.reduce((n, u) => n + u.inProgress.length, 0);
+    } else {
+      // 2-level: one LLM call per outer group
+      callCount = grouped.groups.length;
+
+      process.stderr.write(`  [narrative] Starting ${callCount} parallel LLM calls...\n`);
+      const overallStart = Date.now();
+
+      const parsedGroups = await Promise.all(
+        grouped.groups.map((group) =>
+          generateForGroup(group, outerKey, jiraBase, descLimit, context.llm)
+        )
+      );
+
+      const overallMs = Date.now() - overallStart;
+      process.stderr.write(`  [narrative] All ${callCount} calls complete — ${overallMs}ms total\n`);
+
+      const assembled = assembleMarkdown(grouped, parsedGroups, jiraBase);
+
+      if (assembled.matched < assembled.total) {
+        process.stderr.write(`  [warn] generate_sprint_narrative: ${assembled.matched}/${assembled.total} groups matched (unmatched LLM keys: ${assembled.unmatchedKeys.join(", ") || "none"})\n`);
+      }
+
+      narrative = assembled.markdown;
+      totalDelivered = grouped.groups.reduce((n, g) => getSubGroupIssues(g, "done").length + n, 0);
+      totalInProgress = grouped.groups.reduce((n, g) => getSubGroupIssues(g, "in_progress").length + n, 0);
     }
-
-    let narrative = assembled.markdown;
 
     const diff = log ? extractDiffFromLog(log) : null;
     if (diff) {
@@ -354,12 +566,9 @@ export const generateSprintNarrativeTool: Tool = {
       if (diffBlock) narrative = diffBlock + "\n\n" + narrative;
     }
 
-    const totalDelivered = grouped.groups.reduce((n, g) => getSubGroupIssues(g, "done").length + n, 0);
-    const totalInProgress = grouped.groups.reduce((n, g) => getSubGroupIssues(g, "in_progress").length + n, 0);
-
     return {
       narrative,
-      summary: `Sprint narrative generated (${grouped.groups.length} groups, ${totalDelivered} delivered, ${totalInProgress} in progress). Full content available via contentFrom: "generate_sprint_narrative".`,
+      summary: `Sprint narrative generated (${callCount} calls, ${totalDelivered} delivered, ${totalInProgress} in progress). Full content available via contentFrom: "generate_sprint_narrative".`,
     };
   },
 };

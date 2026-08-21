@@ -14,6 +14,6 @@ Sprint narrative (follow this order EXACTLY):
      c. If the user explicitly said "regenerate" / "rerun" / "refresh": skip diff, go straight to step 5.
   5. Call group_issues EXACTLY ONCE with one of these groupings:
      - Default: group_issues({ groupBy: ["epic", "status"] })
-     - Only if the user explicitly asks for a per-person/by-assignee view: group_issues({ groupBy: ["assignee", "status"] })
+     - Per-person view (user asks "by assignee", "by person", "by team member", or "assignee then epic"): group_issues({ groupBy: ["assignee", "status", "epic"] })
      Do NOT call group_issues twice. Pick one grouping based on the user's request.
   6. generate_sprint_narrative to write the prose narrative

@@ -1,14 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   assembleMarkdown,
+  assembleThreeLevelMarkdown,
   renderHeading,
   getSubGroupIssues,
   extractJson,
   linkifyIssueKeys,
   buildGroupMessage,
+  flattenToEpicUnits,
   generateSprintNarrativeTool,
   type GroupNarrative,
   type AssembleResult,
+  type EpicUnit,
 } from "./generate-sprint-narrative.js";
 import type { IssueGroup, GroupIssuesResult } from "./group-issues.js";
 import type { JiraIssue } from "./search-issues.js";
@@ -767,5 +770,144 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
     expect(context.llm.generate).toHaveBeenCalledTimes(1);
     expect((result as any).narrative).toContain("Alice delivered.");
+  });
+});
+
+// --- flattenToEpicUnits ---
+
+describe("flattenToEpicUnits", () => {
+  function make3LevelGrouped(): GroupIssuesResult {
+    return {
+      groups: [
+        {
+          groupKey: "Alice",
+          groupLabel: "Alice",
+          issues: [
+            makeIssue("X-1", { assignee: "Alice", status: "Done", statusCategory: "Done" }),
+            makeIssue("X-2", { assignee: "Alice", status: "In Review", statusCategory: "In Progress" }),
+            makeIssue("X-3", { assignee: "Alice", status: "In Progress", statusCategory: "In Progress" }),
+          ],
+          subGroups: [
+            {
+              groupKey: "done", groupLabel: "Done",
+              issues: [makeIssue("X-1", { assignee: "Alice" })],
+              subGroups: [
+                { groupKey: "PROJ-50", groupLabel: "Clean Claims", issues: [makeIssue("X-1", { assignee: "Alice" })] },
+              ],
+            },
+            {
+              groupKey: "in_progress", groupLabel: "In Progress",
+              issues: [
+                makeIssue("X-2", { assignee: "Alice", status: "In Review", statusCategory: "In Progress" }),
+                makeIssue("X-3", { assignee: "Alice", status: "In Progress", statusCategory: "In Progress" }),
+              ],
+              subGroups: [
+                { groupKey: "PROJ-50", groupLabel: "Clean Claims", issues: [makeIssue("X-2", { assignee: "Alice", status: "In Review" })] },
+                { groupKey: "PROJ-60", groupLabel: "Eligibility", issues: [makeIssue("X-3", { assignee: "Alice", status: "In Progress" })] },
+              ],
+            },
+          ],
+        },
+      ],
+      groupBy: ["assignee", "status", "epic"],
+      total: 3,
+      dropped: 0,
+      summary: "test",
+    };
+  }
+
+  it("flattens 3-level groups into (assignee × epic) units", () => {
+    const grouped = make3LevelGrouped();
+    const units = flattenToEpicUnits(grouped);
+
+    expect(units).toHaveLength(2);
+
+    const cleanClaims = units.find((u) => u.epicKey === "PROJ-50");
+    expect(cleanClaims).toBeDefined();
+    expect(cleanClaims!.assigneeKey).toBe("Alice");
+    expect(cleanClaims!.done).toHaveLength(1);
+    expect(cleanClaims!.inProgress).toHaveLength(1);
+
+    const eligibility = units.find((u) => u.epicKey === "PROJ-60");
+    expect(eligibility).toBeDefined();
+    expect(eligibility!.inProgress).toHaveLength(1);
+    expect(eligibility!.done).toHaveLength(0);
+  });
+});
+
+// --- assembleThreeLevelMarkdown ---
+
+describe("assembleThreeLevelMarkdown", () => {
+  it("renders deterministic epic labels under each assignee", () => {
+    const grouped: GroupIssuesResult = {
+      groups: [
+        {
+          groupKey: "Alice",
+          groupLabel: "Alice",
+          issues: [makeIssue("X-1"), makeIssue("X-2")],
+          subGroups: [
+            {
+              groupKey: "done", groupLabel: "Done",
+              issues: [makeIssue("X-1")],
+              subGroups: [{ groupKey: "PROJ-50", groupLabel: "Clean Claims", issues: [makeIssue("X-1")] }],
+            },
+            {
+              groupKey: "in_progress", groupLabel: "In Progress",
+              issues: [makeIssue("X-2", { status: "QA", statusCategory: "In Progress" })],
+              subGroups: [{ groupKey: "PROJ-60", groupLabel: "Eligibility", issues: [makeIssue("X-2", { status: "QA" })] }],
+            },
+          ],
+        },
+      ],
+      groupBy: ["assignee", "status", "epic"],
+      total: 2,
+      dropped: 0,
+      summary: "test",
+    };
+
+    const units = flattenToEpicUnits(grouped);
+    const proseMap = new Map<string, GroupNarrative>();
+    proseMap.set("Alice::PROJ-50", { groupKey: "Alice::PROJ-50", delivered: ["Clean claims delivered."] });
+    proseMap.set("Alice::PROJ-60", { groupKey: "Alice::PROJ-60", inProgress: ["Eligibility in progress."] });
+
+    const result = assembleThreeLevelMarkdown(grouped, units, proseMap, JIRA_BASE);
+
+    expect(result.markdown).toContain("## Alice");
+    expect(result.markdown).toContain("**Clean Claims**");
+    expect(result.markdown).toContain("Clean claims delivered.");
+    expect(result.markdown).toContain("### In Progress");
+    expect(result.markdown).toContain("**Eligibility**");
+    expect(result.markdown).toContain("Eligibility in progress.");
+  });
+
+  it("renders Other Work for _no_epic_ groups", () => {
+    const grouped: GroupIssuesResult = {
+      groups: [
+        {
+          groupKey: "Bob",
+          groupLabel: "Bob",
+          issues: [makeIssue("X-1")],
+          subGroups: [
+            {
+              groupKey: "done", groupLabel: "Done",
+              issues: [makeIssue("X-1")],
+              subGroups: [{ groupKey: "_no_epic_", groupLabel: "Other Work", issues: [makeIssue("X-1")] }],
+            },
+          ],
+        },
+      ],
+      groupBy: ["assignee", "status", "epic"],
+      total: 1,
+      dropped: 0,
+      summary: "test",
+    };
+
+    const units = flattenToEpicUnits(grouped);
+    const proseMap = new Map<string, GroupNarrative>();
+    proseMap.set("Bob::_no_epic_", { groupKey: "Bob::_no_epic_", delivered: ["Standalone work."] });
+
+    const result = assembleThreeLevelMarkdown(grouped, units, proseMap, JIRA_BASE);
+    expect(result.markdown).toContain("**Other Work**");
+    expect(result.markdown).toContain("Standalone work.");
   });
 });

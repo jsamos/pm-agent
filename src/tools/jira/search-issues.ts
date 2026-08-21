@@ -210,12 +210,24 @@ export const searchIssuesTool: Tool = {
   },
 
   async execute(args, context: ExecutionContext) {
-    const { jql, resolveParentsTo, maxResults = 100, fields } = args as {
-      jql: string;
+    const { resolveParentsTo, maxResults = 100, fields } = args as {
+      jql?: string;
       resolveParentsTo?: string;
       maxResults?: number;
       fields?: string[];
     };
+
+    // Prefer JQL from the last build_sprint_jql or build_epic_jql result
+    let jql = args.jql as string | undefined;
+    if (!jql && context.toolCallLog) {
+      const jqlEntry = [...context.toolCallLog].reverse().find(
+        (tc) => tc.tool === "build_sprint_jql" || tc.tool === "build_epic_jql"
+      );
+      if (jqlEntry) {
+        jql = (jqlEntry.result as { jql?: string })?.jql;
+      }
+    }
+    if (!jql) throw new Error("No JQL provided and no build_*_jql result found in tool call log.");
 
     // Build default fields from BASE_FIELDS + any custom fields from config
     const configFields = context.config.fields as Record<string, string> | undefined;

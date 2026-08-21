@@ -69,6 +69,7 @@ See the detailed setup guides: [Jira](docs/jira-setup.md) | [Slack](docs/slack-s
 
 ```bash
 npm run agent -- "what's the team's progress this sprint"
+npm run agent -- "what's the sprint status by assignee, then epic"
 npm run agent -- "what's Alice working on this sprint"
 npm run agent -- "generate an epic narrative for PROJ-100"
 npm run agent -- "add Bob Chen to the roster"
@@ -178,7 +179,7 @@ npm test              # run all tests
 npm run test:watch    # watch mode
 ```
 
-164 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, skill loading, and execute-level flows with mocked LLM responses. No tests make live LLM or network calls.
+178 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, skill loading, and execute-level flows with mocked LLM responses. No tests make live LLM or network calls.
 
 ## Utility scripts
 
