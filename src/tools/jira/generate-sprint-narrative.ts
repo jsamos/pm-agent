@@ -187,10 +187,121 @@ export function assembleMarkdown(
   };
 }
 
+export function buildGroupMessage(
+  group: IssueGroup,
+  outerKey: string,
+  jiraBase: string,
+  descLimit: number,
+): string {
+  const formatIssue = (i: JiraIssue) => {
+    const desc = i.description ? i.description.slice(0, descLimit) : "(no description)";
+    let epic = "";
+    if (i.parent?.issueType === "Epic") {
+      epic = outerKey === "assignee"
+        ? ` [Epic: ${i.parent.key} — ${i.parent.summary}]`
+        : ` [Epic: ${i.parent.key}]`;
+    }
+    return `  - ${i.key} [${i.issueType}] (${i.assignee || "Unassigned"}) [Status: ${i.status}]${epic}: ${i.summary}\n    ${desc}`;
+  };
+
+  const sortByEpic = (issues: JiraIssue[]) => [...issues].sort((a, b) => {
+    const aKey = a.parent?.issueType === "Epic" ? a.parent.key : "_none_";
+    const bKey = b.parent?.issueType === "Epic" ? b.parent.key : "_none_";
+    return aKey.localeCompare(bKey);
+  });
+
+  const groupNoun = outerKey === "epic" ? "epic" : "team member";
+  const lines: string[] = [
+    `Write prose for this single ${groupNoun}.`,
+    `JIRA_BASE: ${jiraBase}`,
+    "",
+    `GROUP KEY: ${group.groupKey}`,
+    `GROUP LABEL: ${group.groupLabel}`,
+  ];
+
+  if (group.subGroups) {
+    const done = getSubGroupIssues(group, "done");
+    const inProgress = getSubGroupIssues(group, "in_progress");
+    const notStarted = getSubGroupIssues(group, "not_started");
+
+    const sortedDone = outerKey === "assignee" ? sortByEpic(done) : done;
+    const sortedInProgress = outerKey === "assignee" ? sortByEpic(inProgress) : inProgress;
+    const sortedNotStarted = outerKey === "assignee" ? sortByEpic(notStarted) : notStarted;
+
+    if (sortedDone.length > 0) {
+      lines.push(`  Done (${sortedDone.length}):`);
+      lines.push(...sortedDone.map(formatIssue));
+    }
+    if (sortedInProgress.length > 0) {
+      lines.push(`  In Progress (${sortedInProgress.length}):`);
+      lines.push(...sortedInProgress.map(formatIssue));
+    }
+    if (sortedNotStarted.length > 0) {
+      lines.push(`  Not Started (${sortedNotStarted.length}):`);
+      lines.push(...sortedNotStarted.map(formatIssue));
+    }
+  } else {
+    const all = collectIssues(group);
+    lines.push(...all.map(formatIssue));
+  }
+
+  return lines.join("\n");
+}
+
+async function generateForGroup(
+  group: IssueGroup,
+  outerKey: string,
+  jiraBase: string,
+  descLimit: number,
+  llm: ExecutionContext["llm"],
+): Promise<GroupNarrative> {
+  const userMessage = buildGroupMessage(group, outerKey, jiraBase, descLimit);
+
+  trace("inner_llm_request", {
+    tool: "generate_sprint_narrative",
+    groupKey: group.groupKey,
+    userMessage: userMessage.slice(0, 2000),
+  });
+
+  const llmStart = Date.now();
+  const response = await llm.generate([
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: userMessage },
+  ], { model: getToolModel("generate_sprint_narrative"), temperature: 0.3 });
+  const llmMs = Date.now() - llmStart;
+
+  const raw = response.content || "";
+  trace("inner_llm_call", {
+    tool: "generate_sprint_narrative",
+    groupKey: group.groupKey,
+    ms: llmMs,
+    response: raw.slice(0, 2000),
+  });
+
+  process.stderr.write(`  [narrative] ${group.groupKey} — ${llmMs}ms\n`);
+
+  const jsonStr = extractJson(raw);
+
+  try {
+    const parsed = JSON.parse(jsonStr) as GroupNarrative;
+    if (!parsed.groupKey) parsed.groupKey = group.groupKey;
+    return parsed;
+  } catch (e) {
+    process.stderr.write(`  [warn] generate_sprint_narrative: JSON parse failed for "${group.groupKey}" — ${(e as Error).message}\n`);
+    trace("inner_llm_parse_error", {
+      tool: "generate_sprint_narrative",
+      groupKey: group.groupKey,
+      error: (e as Error).message,
+      raw: raw.slice(0, 1000),
+    });
+    return { groupKey: group.groupKey };
+  }
+}
+
 export const generateSprintNarrativeTool: Tool = {
   name: "generate_sprint_narrative",
   description:
-    "Generate a prose sprint narrative from the last group_issues result. Expects group_issues called with ['epic', 'status'] or ['assignee', 'status']. Uses a dedicated LLM call. Returns markdown.",
+    "Generate a prose sprint narrative from the last group_issues result. Expects group_issues called with ['epic', 'status'] or ['assignee', 'status']. Uses parallel LLM calls (one per group). Returns markdown.",
   parameters: {
     type: "object",
     properties: {},
@@ -212,109 +323,24 @@ export const generateSprintNarrativeTool: Tool = {
       throw new Error("group_issues result has no groups.");
     }
 
-    const outerKey = grouped.groupBy[0];
-    const hasStatusSub = grouped.groupBy.length > 1 && grouped.groupBy[1] === "status";
-
     const jiraBase = ((context.config.issueLinkBase as string) || "https://your-org.atlassian.net/browse").replace(/\/+$/, "");
     const narrativeCfg = (context.config.narrative as Record<string, unknown>) || {};
     const descLimit = (narrativeCfg.descriptionLimit as number) || DEFAULT_DESC_LIMIT;
+    const outerKey = grouped.groupBy[0];
 
-    const formatIssue = (i: JiraIssue) => {
-      const desc = i.description ? i.description.slice(0, descLimit) : "(no description)";
-      let epic = "";
-      if (i.parent?.issueType === "Epic") {
-        epic = outerKey === "assignee"
-          ? ` [Epic: ${i.parent.key} — ${i.parent.summary}]`
-          : ` [Epic: ${i.parent.key}]`;
-      }
-      return `  - ${i.key} [${i.issueType}] (${i.assignee || "Unassigned"}) [Status: ${i.status}]${epic}: ${i.summary}\n    ${desc}`;
-    };
+    process.stderr.write(`  [narrative] Starting ${grouped.groups.length} parallel LLM calls...\n`);
+    const overallStart = Date.now();
 
-    const sortByEpic = (issues: JiraIssue[]) => [...issues].sort((a, b) => {
-      const aKey = a.parent?.issueType === "Epic" ? a.parent.key : "_none_";
-      const bKey = b.parent?.issueType === "Epic" ? b.parent.key : "_none_";
-      return aKey.localeCompare(bKey);
-    });
+    const parsedGroups = await Promise.all(
+      grouped.groups.map((group) =>
+        generateForGroup(group, outerKey, jiraBase, descLimit, context.llm)
+      )
+    );
 
-    const groupNoun = outerKey === "epic" ? "epic" : "team member";
-    const dataSections: string[] = [
-      `Issues are grouped by ${groupNoun}.`,
-      `JIRA_BASE: ${jiraBase}`,
-    ];
+    const overallMs = Date.now() - overallStart;
+    process.stderr.write(`  [narrative] All ${grouped.groups.length} calls complete — ${overallMs}ms total\n`);
 
-    for (const group of grouped.groups) {
-      const lines: string[] = [];
-      lines.push(`GROUP KEY: ${group.groupKey}`);
-      lines.push(`GROUP LABEL: ${group.groupLabel}`);
-
-      if (hasStatusSub) {
-        const done = getSubGroupIssues(group, "done");
-        const inProgress = getSubGroupIssues(group, "in_progress");
-        const notStarted = getSubGroupIssues(group, "not_started");
-
-        const sortedDone = outerKey === "assignee" ? sortByEpic(done) : done;
-        const sortedInProgress = outerKey === "assignee" ? sortByEpic(inProgress) : inProgress;
-        const sortedNotStarted = outerKey === "assignee" ? sortByEpic(notStarted) : notStarted;
-
-        if (sortedDone.length > 0) {
-          lines.push(`  Done (${sortedDone.length}):`);
-          lines.push(...sortedDone.map(formatIssue));
-        }
-        if (sortedInProgress.length > 0) {
-          lines.push(`  In Progress (${sortedInProgress.length}):`);
-          lines.push(...sortedInProgress.map(formatIssue));
-        }
-        if (sortedNotStarted.length > 0) {
-          lines.push(`  Not Started (${sortedNotStarted.length}):`);
-          lines.push(...sortedNotStarted.map(formatIssue));
-        }
-      } else {
-        const all = collectIssues(group);
-        lines.push(...all.map(formatIssue));
-      }
-
-      dataSections.push(lines.join("\n"));
-    }
-
-    const userMessage = dataSections.join("\n\n");
-
-    trace("inner_llm_request", {
-      tool: "generate_sprint_narrative",
-      userMessage: userMessage.slice(0, 2000),
-    });
-
-    const llmStart = Date.now();
-    const response = await context.llm.generate([
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
-    ], { model: getToolModel("generate_sprint_narrative"), temperature: 0.3 });
-    const llmMs = Date.now() - llmStart;
-
-    const raw = response.content || "";
-    trace("inner_llm_call", {
-      tool: "generate_sprint_narrative",
-      ms: llmMs,
-      response: raw.slice(0, 2000),
-    });
-
-    const jsonStr = extractJson(raw);
-
-    let parsed: { groups?: GroupNarrative[] };
-    try {
-      parsed = JSON.parse(jsonStr);
-    } catch (e) {
-      process.stderr.write(`  [warn] generate_sprint_narrative: JSON parse failed — ${(e as Error).message}\n`);
-      trace("inner_llm_parse_error", { tool: "generate_sprint_narrative", error: (e as Error).message, raw: raw.slice(0, 1000) });
-      return { narrative: raw };
-    }
-
-    const parsedGroupCount = parsed.groups?.length ?? 0;
-    if (parsedGroupCount === 0) {
-      process.stderr.write(`  [warn] generate_sprint_narrative: LLM returned 0 groups (keys in response: ${Object.keys(parsed).join(", ")})\n`);
-      trace("inner_llm_empty_groups", { tool: "generate_sprint_narrative", responseKeys: Object.keys(parsed) });
-    }
-
-    const assembled = assembleMarkdown(grouped, parsed.groups ?? [], jiraBase);
+    const assembled = assembleMarkdown(grouped, parsedGroups, jiraBase);
 
     if (assembled.matched < assembled.total) {
       process.stderr.write(`  [warn] generate_sprint_narrative: ${assembled.matched}/${assembled.total} groups matched (unmatched LLM keys: ${assembled.unmatchedKeys.join(", ") || "none"})\n`);

@@ -1,6 +1,11 @@
 # Parallel Narrative Generation
 
-**Status: Draft**
+**Status: Archived**
+
+## Addendum: Divergences from original design
+
+- The orchestrator skill (`sprint-narrative.md`) needed an explicit "call group_issues EXACTLY ONCE" instruction to prevent the LLM from calling it twice (once per grouping mode) in a single run.
+- 3rd-level sub-sections (epic within assignee) were not implemented in this change — the parallel architecture enables it cleanly but it's deferred.
 
 ## Architecture
 

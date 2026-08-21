@@ -1,10 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   assembleMarkdown,
   renderHeading,
   getSubGroupIssues,
   extractJson,
   linkifyIssueKeys,
+  buildGroupMessage,
+  generateSprintNarrativeTool,
   type GroupNarrative,
   type AssembleResult,
 } from "./generate-sprint-narrative.js";
@@ -607,5 +609,163 @@ describe("assembleMarkdown diagnostics", () => {
     const result = assembleMarkdown(grouped, prose, JIRA_BASE);
     expect(result.matched).toBe(1);
     expect(result.markdown).toContain("Shipped it.");
+  });
+});
+
+// --- buildGroupMessage ---
+
+describe("buildGroupMessage", () => {
+  it("builds a message for an epic group with status sub-sections", () => {
+    const group = makeEpicGroup("PROJ-1", "User Onboarding", {
+      done: [makeIssue("X-1")],
+      inProgress: [makeIssue("X-2", { status: "In Review", statusCategory: "In Progress" })],
+    });
+
+    const msg = buildGroupMessage(group, "epic", JIRA_BASE, 1000);
+    expect(msg).toContain("Write prose for this single epic.");
+    expect(msg).toContain("GROUP KEY: PROJ-1");
+    expect(msg).toContain("GROUP LABEL: User Onboarding");
+    expect(msg).toContain("Done (1):");
+    expect(msg).toContain("In Progress (1):");
+    expect(msg).toContain("X-1");
+    expect(msg).toContain("X-2");
+  });
+
+  it("builds a message for an assignee group with epic tags", () => {
+    const issue = makeIssue("X-1", {
+      parent: { key: "PROJ-50", summary: "Clean Claims", issueType: "Epic" } as any,
+    });
+    const group: IssueGroup = {
+      groupKey: "Alice Martin",
+      groupLabel: "Alice Martin",
+      issues: [issue],
+      subGroups: [{ groupKey: "done", groupLabel: "Done", issues: [issue] }],
+    };
+
+    const msg = buildGroupMessage(group, "assignee", JIRA_BASE, 1000);
+    expect(msg).toContain("Write prose for this single team member.");
+    expect(msg).toContain("GROUP KEY: Alice Martin");
+    expect(msg).toContain("[Epic: PROJ-50 — Clean Claims]");
+  });
+
+  it("includes JIRA_BASE in the message", () => {
+    const group = makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] });
+    const msg = buildGroupMessage(group, "epic", JIRA_BASE, 1000);
+    expect(msg).toContain(`JIRA_BASE: ${JIRA_BASE}`);
+  });
+});
+
+// --- parallel execute ---
+
+describe("generateSprintNarrativeTool.execute (parallel)", () => {
+
+  function makeContext(groups: IssueGroup[], groupBy: string[] = ["epic", "status"]) {
+    const callCount = { n: 0 };
+    return {
+      context: {
+        toolCallLog: [
+          {
+            tool: "group_issues",
+            args: {},
+            result: { groups, groupBy, dropped: 0, summary: "test" } as GroupIssuesResult,
+          },
+        ],
+        config: { issueLinkBase: JIRA_BASE },
+        llm: {
+          generate: vi.fn(async () => {
+            callCount.n++;
+            const groupIdx = callCount.n - 1;
+            const key = groups[groupIdx]?.groupKey ?? "unknown";
+            return {
+              content: JSON.stringify({
+                groupKey: key,
+                delivered: [`Prose for ${key}.`],
+              }),
+            };
+          }),
+        },
+      },
+      callCount,
+    };
+  }
+
+  it("makes one LLM call per group", async () => {
+    const groups = [
+      makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] }),
+      makeEpicGroup("PROJ-2", "Beta", { done: [makeIssue("X-2")] }),
+      makeEpicGroup("PROJ-3", "Gamma", { done: [makeIssue("X-3")] }),
+    ];
+
+    const { context } = makeContext(groups);
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+
+    expect(context.llm.generate).toHaveBeenCalledTimes(3);
+    expect((result as any).narrative).toContain("Prose for PROJ-1.");
+    expect((result as any).narrative).toContain("Prose for PROJ-2.");
+    expect((result as any).narrative).toContain("Prose for PROJ-3.");
+  });
+
+  it("handles individual group parse failures gracefully", async () => {
+    const groups = [
+      makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] }),
+      makeEpicGroup("PROJ-2", "Beta", { done: [makeIssue("X-2")] }),
+    ];
+
+    let callN = 0;
+    const context = {
+      toolCallLog: [
+        {
+          tool: "group_issues",
+          args: {},
+          result: { groups, groupBy: ["epic", "status"], dropped: 0, summary: "test" } as GroupIssuesResult,
+        },
+      ],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: {
+        generate: vi.fn(async () => {
+          callN++;
+          if (callN === 1) return { content: "not valid json at all" };
+          return { content: JSON.stringify({ groupKey: "PROJ-2", delivered: ["Beta works."] }) };
+        }),
+      },
+    };
+
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+    expect(context.llm.generate).toHaveBeenCalledTimes(2);
+    expect((result as any).narrative).toContain("Beta works.");
+    expect((result as any).narrative).toContain("_No narrative generated._");
+  });
+
+  it("works with assignee grouping", async () => {
+    const groups = [
+      {
+        groupKey: "Alice Martin",
+        groupLabel: "Alice Martin",
+        issues: [makeIssue("X-1", { assignee: "Alice Martin" })],
+        subGroups: [{ groupKey: "done", groupLabel: "Done", issues: [makeIssue("X-1", { assignee: "Alice Martin" })] }],
+      },
+    ];
+
+    let callN = 0;
+    const context = {
+      toolCallLog: [
+        {
+          tool: "group_issues",
+          args: {},
+          result: { groups, groupBy: ["assignee", "status"], dropped: 0, summary: "test" } as GroupIssuesResult,
+        },
+      ],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: {
+        generate: vi.fn(async () => {
+          callN++;
+          return { content: JSON.stringify({ groupKey: "Alice Martin", delivered: ["Alice delivered."] }) };
+        }),
+      },
+    };
+
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+    expect(context.llm.generate).toHaveBeenCalledTimes(1);
+    expect((result as any).narrative).toContain("Alice delivered.");
   });
 });
