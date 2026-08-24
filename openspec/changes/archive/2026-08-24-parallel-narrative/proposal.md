@@ -1,5 +1,7 @@
 # Parallel Narrative Generation
 
+**Status: Archived**
+
 ## Intent
 
 Split sprint narrative generation from one monolithic LLM call into N parallel calls — one per outer group (epic or assignee). Each call receives only its group's data and returns prose for that group. Assembly stitches the results together deterministically.
