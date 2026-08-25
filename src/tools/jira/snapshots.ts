@@ -14,6 +14,7 @@ const CACHE_KEY = "jira_snapshots";
 interface CachedIssue {
   key: string;
   statusCategory?: string;
+  parent?: { key?: string; summary?: string; issueType?: string } | null;
   [k: string]: unknown;
 }
 
@@ -23,33 +24,53 @@ interface SnapshotData {
   issues: CachedIssue[];
 }
 
-interface DiffResult {
+export interface ParentChange {
+  key: string;
+  was: string | null;
+  now: string | null;
+}
+
+export interface DiffResult {
   changed: boolean;
   added: string[];
   removed: string[];
   statusChanges: Array<{ key: string; was: string; now: string }>;
+  parentChanges: ParentChange[];
   baselineTimestamp: string | null;
   summary: string;
 }
 
-function diffIssues(fresh: CachedIssue[], baseline: CachedIssue[]): Omit<DiffResult, "baselineTimestamp" | "summary"> {
+function parentKey(issue: CachedIssue): string | null {
+  const key = issue.parent?.key;
+  return key || null;
+}
+
+export function diffIssues(fresh: CachedIssue[], baseline: CachedIssue[]): Omit<DiffResult, "baselineTimestamp" | "summary"> {
   const baselineMap = new Map(baseline.map((i) => [i.key, i]));
   const freshMap = new Map(fresh.map((i) => [i.key, i]));
 
   const added: string[] = [];
   const removed: string[] = [];
   const statusChanges: Array<{ key: string; was: string; now: string }> = [];
+  const parentChanges: ParentChange[] = [];
 
   for (const issue of fresh) {
     const prev = baselineMap.get(issue.key);
     if (!prev) {
       added.push(issue.key);
-    } else if (prev.statusCategory !== issue.statusCategory) {
-      statusChanges.push({
-        key: issue.key,
-        was: prev.statusCategory || "Unknown",
-        now: issue.statusCategory || "Unknown",
-      });
+    } else {
+      if (prev.statusCategory !== issue.statusCategory) {
+        statusChanges.push({
+          key: issue.key,
+          was: prev.statusCategory || "Unknown",
+          now: issue.statusCategory || "Unknown",
+        });
+      }
+      const prevParent = parentKey(prev);
+      const nowParent = parentKey(issue);
+      if (prevParent !== nowParent) {
+        parentChanges.push({ key: issue.key, was: prevParent, now: nowParent });
+      }
     }
   }
 
@@ -59,8 +80,8 @@ function diffIssues(fresh: CachedIssue[], baseline: CachedIssue[]): Omit<DiffRes
     }
   }
 
-  const changed = added.length > 0 || removed.length > 0 || statusChanges.length > 0;
-  return { changed, added, removed, statusChanges };
+  const changed = added.length > 0 || removed.length > 0 || statusChanges.length > 0 || parentChanges.length > 0;
+  return { changed, added, removed, statusChanges, parentChanges };
 }
 
 export const jiraSearchSnapshotsTool: Tool = {
@@ -140,6 +161,7 @@ export const jiraSearchSnapshotsTool: Tool = {
             added: freshResult.issues.map((i) => i.key),
             removed: [],
             statusChanges: [],
+            parentChanges: [],
             baselineTimestamp: null,
             summary: "No baseline found for this query (first run).",
           } satisfies DiffResult;
@@ -159,6 +181,7 @@ export const jiraSearchSnapshotsTool: Tool = {
         if (diff.added.length > 0) parts.push(`${diff.added.length} added`);
         if (diff.removed.length > 0) parts.push(`${diff.removed.length} removed`);
         if (diff.statusChanges.length > 0) parts.push(`${diff.statusChanges.length} status changes`);
+        if (diff.parentChanges.length > 0) parts.push(`${diff.parentChanges.length} parent changes`);
 
         return {
           ...diff,

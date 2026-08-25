@@ -6,6 +6,7 @@ import {
   searchIssuesTool,
   searchUsersTool,
   jiraSearchSnapshotsTool,
+  jiraNarrativeCacheTool,
   groupIssuesTool,
   generateEpicNarrativeTool,
   generateSprintNarrativeTool,
@@ -24,6 +25,7 @@ export function createRegistry(): ToolRegistry {
   registry.register(buildEpicJqlTool);
   registry.register(searchIssuesTool);
   registry.register(jiraSearchSnapshotsTool);
+  registry.register(jiraNarrativeCacheTool);
   registry.register(groupIssuesTool);
   registry.register(generateEpicNarrativeTool);
   registry.register(generateSprintNarrativeTool);

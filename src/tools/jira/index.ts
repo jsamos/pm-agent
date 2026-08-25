@@ -7,4 +7,5 @@ export { jiraSearchSnapshotsTool } from "./snapshots.js";
 export { groupIssuesTool } from "./group-issues.js";
 export { generateEpicNarrativeTool } from "./generate-epic-narrative.js";
 export { generateSprintNarrativeTool } from "./generate-sprint-narrative.js";
+export { jiraNarrativeCacheTool } from "./narrative-cache-tool.js";
 export { getJiraClient, callJiraTool, extractTextContent } from "./client.js";

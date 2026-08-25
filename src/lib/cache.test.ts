@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // The cache module uses process.cwd() for the root, so we test against the real output dir
-import { cacheAppend, cacheReadAll, cacheReadLatest, cacheRemoveBefore, cacheCount, getCacheRoot } from "./cache.js";
+import { cacheAppend, cacheReadAll, cacheReadLatest, cacheRemoveBefore, cacheFilter, cacheClear, cacheCount, getCacheRoot } from "./cache.js";
 
 const TEST_KEY = "__test_cache__";
 
@@ -91,5 +91,22 @@ describe("cache", () => {
     const removed = cacheRemoveBefore(TEST_KEY, "2000-01-01T00:00");
     expect(removed).toBe(0);
     expect(cacheCount(TEST_KEY)).toBe(1);
+  });
+
+  it("cacheFilter keeps matching entries", () => {
+    cacheAppend(TEST_KEY, { id: 1 });
+    cacheAppend(TEST_KEY, { id: 2 });
+    cacheAppend(TEST_KEY, { id: 3 });
+
+    const removed = cacheFilter(TEST_KEY, (entry) => (entry.data as { id: number }).id !== 2);
+    expect(removed).toBe(1);
+    expect(cacheReadAll(TEST_KEY).map((e) => e.data)).toEqual([{ id: 1 }, { id: 3 }]);
+  });
+
+  it("cacheClear removes all entries", () => {
+    cacheAppend(TEST_KEY, { a: 1 });
+    cacheAppend(TEST_KEY, { b: 2 });
+    expect(cacheClear(TEST_KEY)).toBe(2);
+    expect(cacheCount(TEST_KEY)).toBe(0);
   });
 });

@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { setCacheRoot } from "../../lib/cache.js";
 import {
   assembleMarkdown,
   assembleThreeLevelMarkdown,
@@ -7,12 +10,17 @@ import {
   extractJson,
   linkifyIssueKeys,
   buildGroupMessage,
+  buildChangedKeySet,
+  buildDiffSignals,
+  isGroupAffectedByDiff,
+  splitMarkdownSections,
   flattenToEpicUnits,
   generateSprintNarrativeTool,
   type GroupNarrative,
   type AssembleResult,
   type EpicUnit,
 } from "./generate-sprint-narrative.js";
+import { saveNarrativeCache, computeThread } from "./narrative-cache.js";
 import type { IssueGroup, GroupIssuesResult } from "./group-issues.js";
 import type { JiraIssue } from "./search-issues.js";
 
@@ -909,5 +917,484 @@ describe("assembleThreeLevelMarkdown", () => {
     const result = assembleThreeLevelMarkdown(grouped, units, proseMap, JIRA_BASE);
     expect(result.markdown).toContain("**Other Work**");
     expect(result.markdown).toContain("Standalone work.");
+  });
+});
+
+// --- buildChangedKeySet ---
+
+// [tested] Scenario: Extracts changed keys from diff
+describe("buildChangedKeySet", () => {
+  it("returns null when no diff found in log", () => {
+    expect(buildChangedKeySet([])).toBeNull();
+  });
+
+  it("returns null when diff has no baseline", () => {
+    const log = [{
+      tool: "jira_search_snapshots",
+      args: { action: "diff" },
+      result: { changed: true, added: ["X-1"], removed: [], statusChanges: [], baselineTimestamp: null },
+    }];
+    expect(buildChangedKeySet(log)).toBeNull();
+  });
+
+  it("collects added, removed, status-changed, and parent-changed keys", () => {
+    const log = [{
+      tool: "jira_search_snapshots",
+      args: { action: "diff" },
+      result: {
+        changed: true,
+        added: ["X-1", "X-2"],
+        removed: ["X-3"],
+        statusChanges: [{ key: "X-4", was: "To Do", now: "In Progress" }],
+        parentChanges: [{ key: "X-5", was: "PROJ-10", now: "PROJ-20" }],
+        baselineTimestamp: "2026-08-20T10:00",
+      },
+    }];
+    const keys = buildChangedKeySet(log);
+    expect(keys).not.toBeNull();
+    expect(keys!.has("X-1")).toBe(true);
+    expect(keys!.has("X-2")).toBe(true);
+    expect(keys!.has("X-3")).toBe(true);
+    expect(keys!.has("X-4")).toBe(true);
+    expect(keys!.has("X-5")).toBe(true);
+    expect(keys!.size).toBe(5);
+  });
+
+  it("returns empty set when diff shows no changes", () => {
+    const log = [{
+      tool: "jira_search_snapshots",
+      args: { action: "diff" },
+      result: {
+        changed: false,
+        added: [],
+        removed: [],
+        statusChanges: [],
+        baselineTimestamp: "2026-08-20T10:00",
+      },
+    }];
+    const keys = buildChangedKeySet(log);
+    expect(keys).not.toBeNull();
+    expect(keys!.size).toBe(0);
+  });
+});
+
+describe("buildDiffSignals", () => {
+  it("returns parentChanges separately from changed issue keys", () => {
+    const log = [{
+      tool: "jira_search_snapshots",
+      args: { action: "diff" },
+      result: {
+        changed: true,
+        added: [],
+        removed: [],
+        statusChanges: [],
+        parentChanges: [{ key: "X-1", was: "PROJ-10", now: "PROJ-20" }],
+        baselineTimestamp: "2026-08-20T10:00",
+      },
+    }];
+    const signals = buildDiffSignals(log);
+    expect(signals!.parentChanges).toEqual([{ key: "X-1", was: "PROJ-10", now: "PROJ-20" }]);
+    expect(signals!.changedIssueKeys.has("X-1")).toBe(true);
+  });
+});
+
+describe("isGroupAffectedByDiff", () => {
+  it("flags epic groups when a ticket moved away or in", () => {
+    const parentChanges = [{ key: "X-1", was: "PROJ-10", now: "PROJ-20" }];
+    const changed = new Set(["X-1"]);
+
+    expect(isGroupAffectedByDiff("PROJ-10", ["X-2"], changed, parentChanges)).toBe(true);
+    expect(isGroupAffectedByDiff("PROJ-20", ["X-1"], changed, parentChanges)).toBe(true);
+    expect(isGroupAffectedByDiff("PROJ-30", ["X-3"], changed, parentChanges)).toBe(false);
+  });
+
+  it("flags _no_epic_ when parent is added or removed", () => {
+    const parentChanges = [{ key: "X-1", was: null, now: "PROJ-10" }];
+    expect(isGroupAffectedByDiff("_no_epic_", [], new Set(["X-1"]), parentChanges)).toBe(true);
+    expect(isGroupAffectedByDiff("PROJ-10", ["X-1"], new Set(["X-1"]), parentChanges)).toBe(true);
+  });
+});
+
+// --- splitMarkdownSections ---
+
+// [tested] Scenario: Splits assembled markdown into group sections
+describe("splitMarkdownSections", () => {
+  it("splits on --- separators", () => {
+    const md = "## Alpha\n\nProse A.\n\n---\n\n## Beta\n\nProse B.";
+    const sections = splitMarkdownSections(md);
+    expect(sections).toHaveLength(2);
+    expect(sections[0]).toContain("## Alpha");
+    expect(sections[1]).toContain("## Beta");
+  });
+
+  it("returns single section when no separator", () => {
+    const md = "## Only One\n\nProse.";
+    expect(splitMarkdownSections(md)).toEqual([md]);
+  });
+});
+
+// --- Selective regeneration (execute-level) ---
+
+const TEST_CACHE_REGEN = join(process.cwd(), "output", "test-selective-regen");
+
+// [tested] Scenario: Selective regeneration — unchanged group reuses cache, changed group gets LLM call
+describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
+  beforeEach(() => {
+    setCacheRoot(TEST_CACHE_REGEN);
+    if (existsSync(TEST_CACHE_REGEN)) rmSync(TEST_CACHE_REGEN, { recursive: true });
+    mkdirSync(TEST_CACHE_REGEN, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_CACHE_REGEN)) rmSync(TEST_CACHE_REGEN, { recursive: true });
+  });
+
+  const JQL = 'project = PROJ AND sprint in openSprints()';
+  const THREAD = computeThread(JQL);
+
+  it("reuses cached prose for unchanged groups and only calls LLM for changed groups", async () => {
+    // Seed narrative cache with 2 groups
+    saveNarrativeCache({
+      thread: THREAD,
+      groupBy: ["epic", "status"],
+      sections: [
+        {
+          groupKey: "PROJ-1",
+          groupLabel: "Alpha",
+          issueKeys: ["X-1"],
+          prose: { groupKey: "PROJ-1", delivered: ["Cached Alpha prose."] },
+          renderedMarkdown: "## Alpha\n\nCached Alpha prose.",
+        },
+        {
+          groupKey: "PROJ-2",
+          groupLabel: "Beta",
+          issueKeys: ["X-2"],
+          prose: { groupKey: "PROJ-2", delivered: ["Cached Beta prose."] },
+          renderedMarkdown: "## Beta\n\nCached Beta prose.",
+        },
+      ],
+    });
+
+    const groups = [
+      makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] }),
+      makeEpicGroup("PROJ-2", "Beta", { done: [makeIssue("X-2"), makeIssue("X-3")] }),
+    ];
+
+    const context = {
+      toolCallLog: [
+        {
+          tool: "search_jira_issues",
+          args: {},
+          result: { jql: JQL, issues: [makeIssue("X-1"), makeIssue("X-2"), makeIssue("X-3")] },
+        },
+        {
+          tool: "jira_search_snapshots",
+          args: { action: "diff" },
+          result: {
+            changed: true,
+            added: ["X-3"],
+            removed: [],
+            statusChanges: [],
+            baselineTimestamp: "2026-08-20T10:00",
+          },
+        },
+        {
+          tool: "group_issues",
+          args: {},
+          result: { groups, groupBy: ["epic", "status"], dropped: 0, summary: "test" } as GroupIssuesResult,
+        },
+      ],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: {
+        generate: vi.fn(async () => ({
+          content: JSON.stringify({ groupKey: "PROJ-2", delivered: ["Fresh Beta prose."] }),
+        })),
+      },
+    };
+
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+    const narrative = (result as any).narrative as string;
+
+    // Only 1 LLM call — for PROJ-2 (which has the new X-3 ticket)
+    expect(context.llm.generate).toHaveBeenCalledTimes(1);
+
+    // PROJ-1 uses cached prose
+    expect(narrative).toContain("Cached Alpha prose.");
+
+    // PROJ-2 uses fresh LLM prose
+    expect(narrative).toContain("Fresh Beta prose.");
+
+    // Summary reflects selective regeneration
+    expect((result as any).summary).toContain("1 LLM calls");
+    expect((result as any).summary).toContain("1 reused from cache");
+  });
+
+  // [tested] Scenario: Summary with selective regeneration (Reporting requirement)
+  it("reports LLM call count and reused count in the summary", async () => {
+    saveNarrativeCache({
+      thread: THREAD,
+      groupBy: ["epic", "status"],
+      sections: [
+        { groupKey: "PROJ-1", groupLabel: "One", issueKeys: ["X-1"], prose: { groupKey: "PROJ-1", delivered: ["P1 cached."] }, renderedMarkdown: "" },
+        { groupKey: "PROJ-2", groupLabel: "Two", issueKeys: ["X-2"], prose: { groupKey: "PROJ-2", delivered: ["P2 cached."] }, renderedMarkdown: "" },
+        { groupKey: "PROJ-3", groupLabel: "Three", issueKeys: ["X-3"], prose: { groupKey: "PROJ-3", delivered: ["P3 cached."] }, renderedMarkdown: "" },
+        { groupKey: "PROJ-4", groupLabel: "Four", issueKeys: ["X-4"], prose: { groupKey: "PROJ-4", delivered: ["P4 cached."] }, renderedMarkdown: "" },
+        { groupKey: "PROJ-5", groupLabel: "Five", issueKeys: ["X-5"], prose: { groupKey: "PROJ-5", delivered: ["P5 cached."] }, renderedMarkdown: "" },
+      ],
+    });
+
+    const groups = [
+      makeEpicGroup("PROJ-1", "One", { done: [makeIssue("X-1")] }),
+      makeEpicGroup("PROJ-2", "Two", { done: [makeIssue("X-2"), makeIssue("X-6")] }),
+      makeEpicGroup("PROJ-3", "Three", { done: [makeIssue("X-3")] }),
+      makeEpicGroup("PROJ-4", "Four", { done: [makeIssue("X-4")] }),
+      makeEpicGroup("PROJ-5", "Five", { done: [makeIssue("X-5")] }),
+    ];
+
+    let callN = 0;
+    const context = {
+      toolCallLog: [
+        {
+          tool: "search_jira_issues",
+          args: {},
+          result: {
+            jql: JQL,
+            issues: [makeIssue("X-1"), makeIssue("X-2"), makeIssue("X-3"), makeIssue("X-4"), makeIssue("X-5"), makeIssue("X-6")],
+          },
+        },
+        {
+          tool: "jira_search_snapshots",
+          args: { action: "diff" },
+          result: {
+            changed: true,
+            added: ["X-6"],
+            removed: [],
+            statusChanges: [{ key: "X-4", was: "To Do", now: "In Progress" }],
+            parentChanges: [],
+            baselineTimestamp: "2026-08-20T10:00",
+          },
+        },
+        {
+          tool: "group_issues",
+          args: {},
+          result: { groups, groupBy: ["epic", "status"], dropped: 0, summary: "test" } as GroupIssuesResult,
+        },
+      ],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: {
+        generate: vi.fn(async () => {
+          callN++;
+          return {
+            content: JSON.stringify({
+              groupKey: callN === 1 ? "PROJ-2" : "PROJ-4",
+              delivered: [`Fresh group ${callN}.`],
+            }),
+          };
+        }),
+      },
+    };
+
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+
+    expect(context.llm.generate).toHaveBeenCalledTimes(2);
+    expect((result as any).summary).toContain("2 LLM calls");
+    expect((result as any).summary).toContain("3 reused from cache");
+  });
+
+  // [tested] Scenario: Full regeneration when no cache exists
+  it("regenerates all groups when no cache exists", async () => {
+    const groups = [
+      makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] }),
+    ];
+
+    let callN = 0;
+    const context = {
+      toolCallLog: [
+        {
+          tool: "search_jira_issues",
+          args: {},
+          result: { jql: JQL, issues: [makeIssue("X-1")] },
+        },
+        {
+          tool: "group_issues",
+          args: {},
+          result: { groups, groupBy: ["epic", "status"], dropped: 0, summary: "test" } as GroupIssuesResult,
+        },
+      ],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: {
+        generate: vi.fn(async () => {
+          callN++;
+          return { content: JSON.stringify({ groupKey: "PROJ-1", delivered: ["Fresh Alpha."] }) };
+        }),
+      },
+    };
+
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+    expect(context.llm.generate).toHaveBeenCalledTimes(1);
+    expect((result as any).narrative).toContain("Fresh Alpha.");
+  });
+
+  // [tested] Scenario: Full regeneration when groupBy mismatch
+  it("regenerates all groups when groupBy doesn't match cache", async () => {
+    // Seed with epic grouping
+    saveNarrativeCache({
+      thread: THREAD,
+      groupBy: ["epic", "status"],
+      sections: [{
+        groupKey: "PROJ-1", groupLabel: "Alpha", issueKeys: ["X-1"],
+        prose: { groupKey: "PROJ-1", delivered: ["Cached."] },
+        renderedMarkdown: "## Alpha\n\nCached.",
+      }],
+    });
+
+    // Run with assignee grouping
+    const groups = [{
+      groupKey: "Alice",
+      groupLabel: "Alice",
+      issues: [makeIssue("X-1", { assignee: "Alice" })],
+      subGroups: [{ groupKey: "done", groupLabel: "Done", issues: [makeIssue("X-1", { assignee: "Alice" })] }],
+    }];
+
+    const context = {
+      toolCallLog: [
+        { tool: "search_jira_issues", args: {}, result: { jql: JQL, issues: [makeIssue("X-1")] } },
+        {
+          tool: "jira_search_snapshots", args: { action: "diff" },
+          result: { changed: true, added: ["X-1"], removed: [], statusChanges: [], baselineTimestamp: "2026-08-20T10:00" },
+        },
+        { tool: "group_issues", args: {}, result: { groups, groupBy: ["assignee", "status"], dropped: 0, summary: "test" } as GroupIssuesResult },
+      ],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: {
+        generate: vi.fn(async () => ({
+          content: JSON.stringify({ groupKey: "Alice", delivered: ["Alice fresh."] }),
+        })),
+      },
+    };
+
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+    // Cache didn't match (different groupBy) → full regeneration
+    expect(context.llm.generate).toHaveBeenCalledTimes(1);
+    expect((result as any).narrative).toContain("Alice fresh.");
+  });
+
+  // [tested] Scenario: Ticket moves from Standalone Items to a new epic
+  it("regenerates only the new epic when a ticket moves off standalone", async () => {
+    const standaloneMd = "## Standalone Items\n\n**Alice**\n\nStandalone prose.";
+    const alphaMd = "## Alpha ([PROJ-1](https://example.atlassian.net/browse/PROJ-1))\n\n**Bob**\n\nCached Alpha.";
+
+    saveNarrativeCache({
+      thread: THREAD,
+      groupBy: ["epic", "status"],
+      sections: [
+        {
+          groupKey: "PROJ-1",
+          groupLabel: "Alpha",
+          issueKeys: ["X-2"],
+          prose: { groupKey: "PROJ-1", delivered: ["Cached Alpha."] },
+          renderedMarkdown: alphaMd,
+        },
+        {
+          groupKey: "_no_epic_",
+          groupLabel: "Other Work",
+          issueKeys: ["X-1"],
+          prose: { groupKey: "_no_epic_", delivered: ["Standalone prose."] },
+          renderedMarkdown: standaloneMd,
+        },
+      ],
+    });
+
+    const groups = [
+      makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-2", { assignee: "Bob" })] }),
+      makeEpicGroup("PROJ-NEW", "New Epic", { done: [makeIssue("X-1")] }),
+    ];
+
+    const context = {
+      toolCallLog: [
+        {
+          tool: "search_jira_issues",
+          args: {},
+          result: { jql: JQL, issues: [makeIssue("X-1"), makeIssue("X-2")] },
+        },
+        {
+          tool: "jira_search_snapshots",
+          args: { action: "diff" },
+          result: {
+            changed: true,
+            added: [],
+            removed: [],
+            statusChanges: [],
+            parentChanges: [{ key: "X-1", was: null, now: "PROJ-NEW" }],
+            baselineTimestamp: "2026-08-20T10:00",
+          },
+        },
+        {
+          tool: "group_issues",
+          args: {},
+          result: { groups, groupBy: ["epic", "status"], dropped: 0, summary: "test" } as GroupIssuesResult,
+        },
+      ],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: {
+        generate: vi.fn(async () => ({
+          content: JSON.stringify({ groupKey: "PROJ-NEW", delivered: ["Fresh new epic prose."] }),
+        })),
+      },
+    };
+
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+    const narrative = (result as any).narrative as string;
+
+    // PROJ-1 unchanged; PROJ-NEW is new; _no_epic_ is gone (no LLM call for it)
+    expect(context.llm.generate).toHaveBeenCalledTimes(1);
+    expect(narrative).toContain("Cached Alpha.");
+    expect(narrative).toContain("Fresh new epic prose.");
+    expect(narrative).not.toContain("Standalone prose.");
+  });
+
+  // [tested] Scenario: Full override — no diff in log forces full regeneration despite cache
+  it("regenerates all groups when no diff entry exists in log (full override path)", async () => {
+    // Seed cache
+    saveNarrativeCache({
+      thread: THREAD,
+      groupBy: ["epic", "status"],
+      sections: [
+        {
+          groupKey: "PROJ-1", groupLabel: "Alpha", issueKeys: ["X-1"],
+          prose: { groupKey: "PROJ-1", delivered: ["Cached Alpha."] },
+          renderedMarkdown: "## Alpha\n\nCached Alpha.",
+        },
+        {
+          groupKey: "PROJ-2", groupLabel: "Beta", issueKeys: ["X-2"],
+          prose: { groupKey: "PROJ-2", delivered: ["Cached Beta."] },
+          renderedMarkdown: "## Beta\n\nCached Beta.",
+        },
+      ],
+    });
+
+    const groups = [
+      makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] }),
+      makeEpicGroup("PROJ-2", "Beta", { done: [makeIssue("X-2")] }),
+    ];
+
+    // No jira_search_snapshots diff entry — simulates "full"/"regenerate" override
+    const context = {
+      toolCallLog: [
+        { tool: "search_jira_issues", args: {}, result: { jql: JQL, issues: [makeIssue("X-1"), makeIssue("X-2")] } },
+        { tool: "group_issues", args: {}, result: { groups, groupBy: ["epic", "status"], dropped: 0, summary: "test" } as GroupIssuesResult },
+      ],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: {
+        generate: vi.fn(async (_msgs: unknown) => ({
+          content: JSON.stringify({ groupKey: "PROJ-1", delivered: ["Fresh prose."] }),
+        })),
+      },
+    };
+
+    await generateSprintNarrativeTool.execute!({}, context as any);
+
+    // Both groups regenerated — cache ignored because no diff = changedKeys is null = canReuse is false
+    expect(context.llm.generate).toHaveBeenCalledTimes(2);
   });
 });

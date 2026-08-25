@@ -106,6 +106,38 @@ export function cacheCompact<T>(key: string, threadFn: (data: T) => string): num
 }
 
 /**
+ * Keep only entries that pass the predicate. Returns the number removed.
+ */
+export function cacheFilter<T>(key: string, keep: (entry: Snapshot<T>) => boolean): number {
+  const file = join(CACHE_ROOT, `${safeFilename(key)}.ndjson`);
+  if (!existsSync(file)) return 0;
+  const lines = readFileSync(file, "utf-8").trim().split("\n").filter(Boolean);
+  const kept: string[] = [];
+  let removed = 0;
+  for (const line of lines) {
+    const entry = JSON.parse(line) as Snapshot<T>;
+    if (keep(entry)) {
+      kept.push(line);
+    } else {
+      removed++;
+    }
+  }
+  writeFileSync(file, kept.length > 0 ? kept.join("\n") + "\n" : "");
+  return removed;
+}
+
+/**
+ * Remove all snapshots for a given key. Returns the number removed.
+ */
+export function cacheClear(key: string): number {
+  const count = cacheCount(key);
+  if (count === 0) return 0;
+  const file = join(CACHE_ROOT, `${safeFilename(key)}.ndjson`);
+  writeFileSync(file, "");
+  return count;
+}
+
+/**
  * Count snapshots for a given key.
  */
 export function cacheCount(key: string): number {

@@ -5,12 +5,24 @@
 
 import type { ToolCallEntry } from "../../lib/agent-loop.js";
 
+export interface ParentChange {
+  key: string;
+  was: string | null;
+  now: string | null;
+}
+
 export interface DiffData {
   changed: boolean;
   added: string[];
   removed: string[];
   statusChanges: Array<{ key: string; was: string; now: string }>;
+  parentChanges: ParentChange[];
   baselineTimestamp: string | null;
+}
+
+/** Map a resolved epic parent key to the group_issues epic groupKey. */
+export function epicGroupKeyFromParent(parentKey: string | null): string {
+  return parentKey ?? "_no_epic_";
 }
 
 /**
@@ -31,6 +43,7 @@ export function extractDiffFromLog(log: ToolCallEntry[]): DiffData | null {
     added: (result.added as string[]) || [],
     removed: (result.removed as string[]) || [],
     statusChanges: (result.statusChanges as DiffData["statusChanges"]) || [],
+    parentChanges: (result.parentChanges as ParentChange[]) || [],
     baselineTimestamp: result.baselineTimestamp as string,
   };
 }
@@ -61,6 +74,16 @@ export function formatDiffBlock(diff: DiffData, jiraBase: string): string {
       .map((c) => `${link(c.key)}: ${c.was} → ${c.now}`)
       .join(", ");
     parts.push(`${diff.statusChanges.length} status change${diff.statusChanges.length > 1 ? "s" : ""} (${changes})`);
+  }
+  if (diff.parentChanges.length > 0) {
+    const changes = diff.parentChanges
+      .map((c) => {
+        const was = c.was ? link(c.was) : "none";
+        const now = c.now ? link(c.now) : "none";
+        return `${link(c.key)}: ${was} → ${now}`;
+      })
+      .join(", ");
+    parts.push(`${diff.parentChanges.length} parent change${diff.parentChanges.length > 1 ? "s" : ""} (${changes})`);
   }
 
   return `> **Changes since ${diff.baselineTimestamp}:** ${parts.join("; ")}`;

@@ -116,6 +116,48 @@ describe("jira_search_snapshots: diff action", () => {
     expect(result.summary).toContain("2 status changes");
   });
 
+  it("detects parent epic changes", async () => {
+    const { createHash } = await import("node:crypto");
+    const jql = "parent in (PROJ-914)";
+    const thread = createHash("md5").update(jql).digest("hex");
+
+    seedCache([{
+      thread,
+      jql,
+      issues: [{ key: "X-1", statusCategory: "To Do", parent: { key: "PROJ-10", summary: "Alpha", issueType: "Epic" } }],
+    }]);
+
+    const ctx = makeContext([makeSearchResult([
+      { key: "X-1", statusCategory: "To Do", parent: { key: "PROJ-20", summary: "Beta", issueType: "Epic" } },
+    ], jql)]);
+    const result = await jiraSearchSnapshotsTool.execute({ action: "diff" }, ctx) as {
+      changed: boolean;
+      parentChanges: Array<{ key: string; was: string | null; now: string | null }>;
+      summary: string;
+    };
+
+    expect(result.changed).toBe(true);
+    expect(result.parentChanges).toEqual([{ key: "X-1", was: "PROJ-10", now: "PROJ-20" }]);
+    expect(result.summary).toContain("1 parent change");
+  });
+
+  it("detects move from no epic to epic parent", async () => {
+    const { createHash } = await import("node:crypto");
+    const jql = "project = TEST";
+    const thread = createHash("md5").update(jql).digest("hex");
+
+    seedCache([{ thread, jql, issues: [{ key: "X-1", statusCategory: "To Do" }] }]);
+
+    const ctx = makeContext([makeSearchResult([
+      { key: "X-1", statusCategory: "To Do", parent: { key: "PROJ-10", summary: "Alpha", issueType: "Epic" } },
+    ], jql)]);
+    const result = await jiraSearchSnapshotsTool.execute({ action: "diff" }, ctx) as {
+      parentChanges: Array<{ key: string; was: string | null; now: string | null }>;
+    };
+
+    expect(result.parentChanges).toEqual([{ key: "X-1", was: null, now: "PROJ-10" }]);
+  });
+
   it("ignores description and priority changes (not meaningful for diff)", async () => {
     const { createHash } = await import("node:crypto");
     const jql = "parent in (PROJ-914)";

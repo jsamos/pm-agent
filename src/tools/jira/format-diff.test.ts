@@ -5,12 +5,12 @@ const JIRA_BASE = "https://example.atlassian.net/browse";
 
 describe("formatDiffBlock", () => {
   it("returns empty string when no baseline", () => {
-    const diff: DiffData = { changed: false, added: [], removed: [], statusChanges: [], baselineTimestamp: null };
+    const diff: DiffData = { changed: false, added: [], removed: [], statusChanges: [], parentChanges: [], baselineTimestamp: null };
     expect(formatDiffBlock(diff, JIRA_BASE)).toBe("");
   });
 
   it("renders no-changes message", () => {
-    const diff: DiffData = { changed: false, added: [], removed: [], statusChanges: [], baselineTimestamp: "2026-08-17T14:30" };
+    const diff: DiffData = { changed: false, added: [], removed: [], statusChanges: [], parentChanges: [], baselineTimestamp: "2026-08-17T14:30" };
     expect(formatDiffBlock(diff, JIRA_BASE)).toBe("> **No changes since 2026-08-17T14:30.**");
   });
 
@@ -20,6 +20,7 @@ describe("formatDiffBlock", () => {
       added: ["PROJ-100", "PROJ-101"],
       removed: [],
       statusChanges: [],
+      parentChanges: [],
       baselineTimestamp: "2026-08-17T14:30",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
@@ -34,6 +35,7 @@ describe("formatDiffBlock", () => {
       added: [],
       removed: ["PROJ-50"],
       statusChanges: [],
+      parentChanges: [],
       baselineTimestamp: "2026-08-17T14:30",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
@@ -50,6 +52,7 @@ describe("formatDiffBlock", () => {
         { key: "PROJ-200", was: "To Do", now: "In Progress" },
         { key: "PROJ-201", was: "In Progress", now: "Done" },
       ],
+      parentChanges: [],
       baselineTimestamp: "2026-08-17T14:30",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
@@ -64,6 +67,7 @@ describe("formatDiffBlock", () => {
       added: ["X-1"],
       removed: ["X-2"],
       statusChanges: [{ key: "X-3", was: "To Do", now: "Done" }],
+      parentChanges: [],
       baselineTimestamp: "2026-08-17T10:00",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
@@ -79,11 +83,40 @@ describe("formatDiffBlock", () => {
       added: [],
       removed: [],
       statusChanges: [{ key: "X-1", was: "To Do", now: "Done" }],
+      parentChanges: [],
       baselineTimestamp: "2026-08-17T10:00",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
     expect(result).toContain("1 status change (");
-    expect(result).not.toContain("changes");
+    expect(result).not.toContain("status changes");
+  });
+
+  it("renders parent changes with epic links", () => {
+    const diff: DiffData = {
+      changed: true,
+      added: [],
+      removed: [],
+      statusChanges: [],
+      parentChanges: [{ key: "X-1", was: "PROJ-10", now: "PROJ-20" }],
+      baselineTimestamp: "2026-08-17T10:00",
+    };
+    const result = formatDiffBlock(diff, JIRA_BASE);
+    expect(result).toContain("1 parent change (");
+    expect(result).toContain("[X-1](https://example.atlassian.net/browse/X-1): [PROJ-10]");
+    expect(result).toContain("→ [PROJ-20]");
+  });
+
+  it("renders none for null parent in parent changes", () => {
+    const diff: DiffData = {
+      changed: true,
+      added: [],
+      removed: [],
+      statusChanges: [],
+      parentChanges: [{ key: "X-1", was: null, now: "PROJ-10" }],
+      baselineTimestamp: "2026-08-17T10:00",
+    };
+    const result = formatDiffBlock(diff, JIRA_BASE);
+    expect(result).toContain("none → [PROJ-10]");
   });
 });
 

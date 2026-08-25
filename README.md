@@ -179,7 +179,7 @@ npm test              # run all tests
 npm run test:watch    # watch mode
 ```
 
-178 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, skill loading, and execute-level flows with mocked LLM responses. No tests make live LLM or network calls.
+203 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, skill loading, selective regeneration, Notion update modes, and execute-level flows with mocked LLM and MCP responses. No tests make live LLM or network calls.
 
 ## Utility scripts
 

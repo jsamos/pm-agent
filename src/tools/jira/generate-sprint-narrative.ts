@@ -16,8 +16,16 @@ import type { ExecutionContext } from "../../lib/context.js";
 import type { JiraIssue } from "./search-issues.js";
 import type { IssueGroup, GroupIssuesResult } from "./group-issues.js";
 import { getToolModel } from "../../lib/models.js";
-import { extractDiffFromLog, formatDiffBlock } from "./format-diff.js";
+import { extractDiffFromLog, formatDiffBlock, epicGroupKeyFromParent, type ParentChange } from "./format-diff.js";
 import { trace } from "../../lib/agent-loop.js";
+import {
+  computeThread,
+  collectGroupIssueKeys,
+  loadNarrativeCache,
+  saveNarrativeCache,
+  type GroupSection,
+  type NarrativeCacheEntry,
+} from "./narrative-cache.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT = readFileSync(resolve(__dirname, "../../prompts/sprint-narrative.md"), "utf-8").trim();
@@ -440,10 +448,75 @@ async function generateForGroup(
   }
 }
 
+/**
+ * Build diff signals from the snapshot diff for selective regeneration.
+ */
+export function buildDiffSignals(log: { tool: string; args: unknown; result: unknown }[]): {
+  changedIssueKeys: Set<string>;
+  parentChanges: ParentChange[];
+} | null {
+  const entry = [...log].reverse().find(
+    (tc) => tc.tool === "jira_search_snapshots" && (tc.args as Record<string, unknown>).action === "diff",
+  );
+  if (!entry) return null;
+
+  const result = entry.result as Record<string, unknown> | null;
+  if (!result || result.baselineTimestamp == null) return null;
+
+  const changedIssueKeys = new Set<string>();
+  for (const k of (result.added as string[]) || []) changedIssueKeys.add(k);
+  for (const k of (result.removed as string[]) || []) changedIssueKeys.add(k);
+  for (const sc of (result.statusChanges as Array<{ key: string }>) || []) changedIssueKeys.add(sc.key);
+
+  const parentChanges = (result.parentChanges as ParentChange[]) || [];
+  for (const pc of parentChanges) changedIssueKeys.add(pc.key);
+
+  return { changedIssueKeys, parentChanges };
+}
+
+/** @deprecated Use buildDiffSignals */
+export function buildChangedKeySet(log: { tool: string; args: unknown; result: unknown }[]): Set<string> | null {
+  const signals = buildDiffSignals(log);
+  return signals ? signals.changedIssueKeys : null;
+}
+
+export function isGroupAffectedByDiff(
+  groupKey: string,
+  groupIssueKeys: string[],
+  changedIssueKeys: Set<string>,
+  parentChanges: ParentChange[],
+): boolean {
+  if (groupIssueKeys.some((k) => changedIssueKeys.has(k))) return true;
+  for (const pc of parentChanges) {
+    if (epicGroupKeyFromParent(pc.was) === groupKey || epicGroupKeyFromParent(pc.now) === groupKey) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Extract the JQL string from the most recent search_jira_issues result in the log.
+ */
+function extractJqlFromLog(log: { tool: string; result: unknown }[]): string | null {
+  const entry = [...log].reverse().find((tc) => tc.tool === "search_jira_issues");
+  if (!entry) return null;
+  const result = entry.result as { jql?: string } | null;
+  return result?.jql || null;
+}
+
+/**
+ * Split assembled markdown into per-group rendered sections.
+ * Groups are separated by \n\n---\n\n in the assembled output.
+ */
+export function splitMarkdownSections(markdown: string): string[] {
+  return markdown.split("\n\n---\n\n");
+}
+
 export const generateSprintNarrativeTool: Tool = {
   name: "generate_sprint_narrative",
   description:
-    "Generate a prose sprint narrative from the last group_issues result. Expects group_issues called with ['epic', 'status'] or ['assignee', 'status']. Uses parallel LLM calls (one per group). Returns markdown.",
+    "Generate a prose sprint narrative from the last group_issues result. Expects group_issues called with ['epic', 'status'] or ['assignee', 'status']. Uses parallel LLM calls (one per group). Automatically reuses cached prose for groups with no ticket changes. Returns markdown.",
   parameters: {
     type: "object",
     properties: {},
@@ -471,85 +544,207 @@ export const generateSprintNarrativeTool: Tool = {
     const outerKey = grouped.groupBy[0];
     const hasThirdLevel = grouped.groupBy.length >= 3;
 
+    // --- Narrative cache: load prior run ---
+    const jql = extractJqlFromLog(log);
+    const thread = jql ? computeThread(jql) : null;
+    const diffSignals = buildDiffSignals(log);
+    const cache = thread ? loadNarrativeCache(thread, grouped.groupBy) : null;
+    const cachedByKey = cache ? new Map(cache.sections.map((s) => [s.groupKey, s])) : null;
+
+    const canReuse = cache !== null && cachedByKey !== null && diffSignals !== null
+      && (diffSignals.changedIssueKeys.size > 0 || diffSignals.parentChanges.length > 0);
+
     let narrative: string;
     let totalDelivered: number;
     let totalInProgress: number;
-    let callCount: number;
+    let llmCallCount: number;
+    let reusedCount = 0;
 
     if (hasThirdLevel && outerKey === "assignee") {
       // 3-level: one LLM call per (assignee × epic)
       const units = flattenToEpicUnits(grouped);
-      callCount = units.length;
-
-      process.stderr.write(`  [narrative] Starting ${callCount} parallel LLM calls (assignee × epic)...\n`);
-      const overallStart = Date.now();
-
-      const results = await Promise.all(
-        units.map(async (unit) => {
-          const userMessage = buildEpicUnitMessage(unit, jiraBase, descLimit);
-          const compositeKey = `${unit.assigneeKey}::${unit.epicKey}`;
-
-          trace("inner_llm_request", {
-            tool: "generate_sprint_narrative",
-            groupKey: compositeKey,
-            userMessage: userMessage.slice(0, 2000),
-          });
-
-          const llmStart = Date.now();
-          const response = await context.llm.generate([
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: userMessage },
-          ], { model: getToolModel("generate_sprint_narrative"), temperature: 0.3 });
-          const llmMs = Date.now() - llmStart;
-
-          const raw = response.content || "";
-          trace("inner_llm_call", {
-            tool: "generate_sprint_narrative",
-            groupKey: compositeKey,
-            ms: llmMs,
-            response: raw.slice(0, 2000),
-          });
-
-          process.stderr.write(`  [narrative] ${unit.assigneeLabel} / ${unit.epicLabel} — ${llmMs}ms\n`);
-
-          try {
-            const parsed = JSON.parse(extractJson(raw)) as GroupNarrative;
-            return { key: compositeKey, narrative: parsed };
-          } catch (e) {
-            process.stderr.write(`  [warn] JSON parse failed for "${compositeKey}" — ${(e as Error).message}\n`);
-            return { key: compositeKey, narrative: { groupKey: compositeKey } as GroupNarrative };
-          }
-        })
-      );
-
-      const overallMs = Date.now() - overallStart;
-      process.stderr.write(`  [narrative] All ${callCount} calls complete — ${overallMs}ms total\n`);
-
+      const totalUnits = units.length;
+      let unitsToGenerate: EpicUnit[];
       const proseMap = new Map<string, GroupNarrative>();
-      for (const r of results) proseMap.set(r.key, r.narrative);
+
+      if (canReuse) {
+        unitsToGenerate = [];
+        for (const unit of units) {
+          const compositeKey = `${unit.assigneeKey}::${unit.epicKey}`;
+          const cached = cachedByKey!.get(compositeKey);
+          const affected = isGroupAffectedByDiff(
+            unit.epicKey,
+            [...unit.done, ...unit.inProgress, ...unit.notStarted].map((i) => i.key),
+            diffSignals!.changedIssueKeys,
+            diffSignals!.parentChanges,
+          );
+          if (cached && !affected) {
+            proseMap.set(compositeKey, cached.prose);
+            reusedCount++;
+          } else {
+            unitsToGenerate.push(unit);
+          }
+        }
+      } else {
+        unitsToGenerate = units;
+      }
+
+      llmCallCount = unitsToGenerate.length;
+      if (reusedCount > 0) {
+        process.stderr.write(`  [narrative] ${reusedCount}/${totalUnits} groups unchanged — reusing cache\n`);
+      }
+
+      if (llmCallCount > 0) {
+        process.stderr.write(`  [narrative] Starting ${llmCallCount} parallel LLM calls (assignee × epic)...\n`);
+        const overallStart = Date.now();
+
+        const results = await Promise.all(
+          unitsToGenerate.map(async (unit) => {
+            const userMessage = buildEpicUnitMessage(unit, jiraBase, descLimit);
+            const compositeKey = `${unit.assigneeKey}::${unit.epicKey}`;
+
+            trace("inner_llm_request", {
+              tool: "generate_sprint_narrative",
+              groupKey: compositeKey,
+              userMessage: userMessage.slice(0, 2000),
+            });
+
+            const llmStart = Date.now();
+            const response = await context.llm.generate([
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: userMessage },
+            ], { model: getToolModel("generate_sprint_narrative"), temperature: 0.3 });
+            const llmMs = Date.now() - llmStart;
+
+            const raw = response.content || "";
+            trace("inner_llm_call", {
+              tool: "generate_sprint_narrative",
+              groupKey: compositeKey,
+              ms: llmMs,
+              response: raw.slice(0, 2000),
+            });
+
+            process.stderr.write(`  [narrative] ${unit.assigneeLabel} / ${unit.epicLabel} — ${llmMs}ms\n`);
+
+            try {
+              const parsed = JSON.parse(extractJson(raw)) as GroupNarrative;
+              return { key: compositeKey, narrative: parsed };
+            } catch (e) {
+              process.stderr.write(`  [warn] JSON parse failed for "${compositeKey}" — ${(e as Error).message}\n`);
+              return { key: compositeKey, narrative: { groupKey: compositeKey } as GroupNarrative };
+            }
+          })
+        );
+
+        const overallMs = Date.now() - overallStart;
+        process.stderr.write(`  [narrative] All ${llmCallCount} calls complete — ${overallMs}ms total\n`);
+
+        for (const r of results) proseMap.set(r.key, r.narrative);
+      }
 
       const assembled = assembleThreeLevelMarkdown(grouped, units, proseMap, jiraBase);
       narrative = assembled.markdown;
 
       totalDelivered = units.reduce((n, u) => n + u.done.length, 0);
       totalInProgress = units.reduce((n, u) => n + u.inProgress.length, 0);
+
+      // Save cache
+      if (thread) {
+        const sections: GroupSection[] = [];
+        const freshSections = splitMarkdownSections(assembled.markdown);
+        // For 3-level, cache is per composite key (assignee::epic)
+        for (const unit of units) {
+          const compositeKey = `${unit.assigneeKey}::${unit.epicKey}`;
+          const issueKeys = [...unit.done, ...unit.inProgress, ...unit.notStarted].map((i) => i.key);
+          sections.push({
+            groupKey: compositeKey,
+            groupLabel: `${unit.assigneeLabel} / ${unit.epicLabel}`,
+            issueKeys,
+            prose: proseMap.get(compositeKey) || { groupKey: compositeKey },
+            renderedMarkdown: "",
+          });
+        }
+        // Store the per-assignee rendered sections in cache
+        const sortedGroups = [...grouped.groups].sort((a, b) => {
+          const aSpecial = a.groupKey.startsWith("_");
+          const bSpecial = b.groupKey.startsWith("_");
+          if (aSpecial !== bSpecial) return aSpecial ? 1 : -1;
+          return a.groupLabel.localeCompare(b.groupLabel);
+        });
+        for (let gi = 0; gi < sortedGroups.length && gi < freshSections.length; gi++) {
+          const assigneeKey = sortedGroups[gi].groupKey;
+          const assigneeSections = sections.filter((s) => s.groupKey.startsWith(assigneeKey + "::"));
+          for (const s of assigneeSections) {
+            s.renderedMarkdown = freshSections[gi];
+          }
+        }
+        saveNarrativeCache({ thread, groupBy: grouped.groupBy, sections });
+      }
     } else {
       // 2-level: one LLM call per outer group
-      callCount = grouped.groups.length;
+      const totalGroups = grouped.groups.length;
+      let groupsToGenerate: IssueGroup[];
+      const cachedProse = new Map<string, GroupNarrative>();
 
-      process.stderr.write(`  [narrative] Starting ${callCount} parallel LLM calls...\n`);
-      const overallStart = Date.now();
+      if (canReuse) {
+        groupsToGenerate = [];
+        for (const group of grouped.groups) {
+          const groupIssueKeys = collectGroupIssueKeys(group);
+          const cached = cachedByKey!.get(group.groupKey);
+          const affected = isGroupAffectedByDiff(
+            group.groupKey,
+            groupIssueKeys,
+            diffSignals!.changedIssueKeys,
+            diffSignals!.parentChanges,
+          );
+          if (cached && !affected) {
+            cachedProse.set(group.groupKey, cached.prose);
+            reusedCount++;
+          } else {
+            groupsToGenerate.push(group);
+          }
+        }
+      } else {
+        groupsToGenerate = grouped.groups;
+      }
 
-      const parsedGroups = await Promise.all(
-        grouped.groups.map((group) =>
-          generateForGroup(group, outerKey, jiraBase, descLimit, context.llm)
-        )
-      );
+      llmCallCount = groupsToGenerate.length;
+      if (reusedCount > 0) {
+        process.stderr.write(`  [narrative] ${reusedCount}/${totalGroups} groups unchanged — reusing cache\n`);
+      }
 
-      const overallMs = Date.now() - overallStart;
-      process.stderr.write(`  [narrative] All ${callCount} calls complete — ${overallMs}ms total\n`);
+      let parsedGroups: GroupNarrative[];
+      if (llmCallCount > 0) {
+        process.stderr.write(`  [narrative] Starting ${llmCallCount} parallel LLM calls...\n`);
+        const overallStart = Date.now();
 
-      const assembled = assembleMarkdown(grouped, parsedGroups, jiraBase);
+        parsedGroups = await Promise.all(
+          groupsToGenerate.map((group) =>
+            generateForGroup(group, outerKey, jiraBase, descLimit, context.llm)
+          )
+        );
+
+        const overallMs = Date.now() - overallStart;
+        process.stderr.write(`  [narrative] All ${llmCallCount} calls complete — ${overallMs}ms total\n`);
+      } else {
+        parsedGroups = [];
+      }
+
+      // Merge fresh LLM results with cached prose
+      const allProse: GroupNarrative[] = [];
+      for (const group of grouped.groups) {
+        const fresh = parsedGroups.find((pg) => {
+          const trimmed = pg.groupKey.trim().toLowerCase();
+          return trimmed === group.groupKey.toLowerCase() || trimmed === group.groupLabel.toLowerCase();
+        });
+        if (fresh) {
+          allProse.push(fresh);
+        } else if (cachedProse.has(group.groupKey)) {
+          allProse.push(cachedProse.get(group.groupKey)!);
+        }
+      }
+
+      const assembled = assembleMarkdown(grouped, allProse, jiraBase);
 
       if (assembled.matched < assembled.total) {
         process.stderr.write(`  [warn] generate_sprint_narrative: ${assembled.matched}/${assembled.total} groups matched (unmatched LLM keys: ${assembled.unmatchedKeys.join(", ") || "none"})\n`);
@@ -558,6 +753,25 @@ export const generateSprintNarrativeTool: Tool = {
       narrative = assembled.markdown;
       totalDelivered = grouped.groups.reduce((n, g) => getSubGroupIssues(g, "done").length + n, 0);
       totalInProgress = grouped.groups.reduce((n, g) => getSubGroupIssues(g, "in_progress").length + n, 0);
+
+      // Save cache
+      if (thread) {
+        const freshSections = splitMarkdownSections(assembled.markdown);
+        const sorted = [...grouped.groups].sort((a, b) => {
+          const aSpecial = a.groupKey.startsWith("_");
+          const bSpecial = b.groupKey.startsWith("_");
+          if (aSpecial !== bSpecial) return aSpecial ? 1 : -1;
+          return a.groupLabel.localeCompare(b.groupLabel);
+        });
+        const sections: GroupSection[] = sorted.map((group, idx) => ({
+          groupKey: group.groupKey,
+          groupLabel: group.groupLabel,
+          issueKeys: collectGroupIssueKeys(group),
+          prose: allProse.find((p) => p.groupKey === group.groupKey || p.groupKey.toLowerCase() === group.groupKey.toLowerCase()) || { groupKey: group.groupKey },
+          renderedMarkdown: freshSections[idx] || "",
+        }));
+        saveNarrativeCache({ thread, groupBy: grouped.groupBy, sections });
+      }
     }
 
     const diff = log ? extractDiffFromLog(log) : null;
@@ -566,9 +780,13 @@ export const generateSprintNarrativeTool: Tool = {
       if (diffBlock) narrative = diffBlock + "\n\n" + narrative;
     }
 
+    const cacheNote = reusedCount > 0
+      ? ` (${reusedCount} from cache)`
+      : "";
+
     return {
       narrative,
-      summary: `Sprint narrative generated (${callCount} calls, ${totalDelivered} delivered, ${totalInProgress} in progress). Full content available via contentFrom: "generate_sprint_narrative".`,
+      summary: `Sprint narrative generated — ${llmCallCount} LLM calls, ${reusedCount} reused from cache. ${totalDelivered} delivered, ${totalInProgress} in progress.${cacheNote} Full content available via contentFrom: "generate_sprint_narrative".`,
     };
   },
 };

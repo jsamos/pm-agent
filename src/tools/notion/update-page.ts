@@ -1,7 +1,6 @@
 /**
  * Tool: update_notion_page
- * Update an existing Notion page's content.
- * Wraps the notion-update-page MCP tool with command: "replace_content".
+ * Update an existing Notion page's content via full replace.
  */
 
 import type { Tool } from "../registry.js";
@@ -14,7 +13,7 @@ import { trace } from "../../lib/agent-loop.js";
 export const updateNotionPageTool: Tool = {
   name: "update_notion_page",
   description:
-    "Update an existing Notion page's content (full replace). Use contentFrom to forward the full output of a prior tool as the new page body. Optionally update the page title.",
+    "Update an existing Notion page's content. Replaces the full page body. Use contentFrom to forward the full output of a prior tool (e.g. generate_sprint_narrative). Optionally update the page title.",
   parameters: {
     type: "object",
     properties: {
@@ -29,7 +28,7 @@ export const updateNotionPageTool: Tool = {
       contentFrom: {
         type: "string",
         description:
-          "Tool name to pull full content from (e.g. 'generate_epic_narrative'). Overrides content.",
+          "Tool name to pull full content from (e.g. 'generate_sprint_narrative'). Overrides content.",
       },
       title: {
         type: "string",
@@ -47,6 +46,8 @@ export const updateNotionPageTool: Tool = {
 
     if (!pageUrl) throw new Error("pageUrl is required");
 
+    const pageId = parseNotionId(pageUrl);
+
     let body: string | undefined;
     if (contentFrom) {
       const resolved = resolveContentRef(context.toolCallLog, contentFrom);
@@ -61,12 +62,6 @@ export const updateNotionPageTool: Tool = {
       body = rawContent;
     }
 
-    if (!body && !title) {
-      throw new Error("At least one of content, contentFrom, or title must be provided");
-    }
-
-    const pageId = parseNotionId(pageUrl);
-
     if (body) {
       const replaceResult = await callNotionTool("notion-update-page", {
         page_id: pageId,
@@ -79,6 +74,8 @@ export const updateNotionPageTool: Tool = {
         command: "replace_content",
         raw: replaceText.slice(0, 1000),
       });
+    } else if (!title) {
+      throw new Error("At least one of content, contentFrom, or title must be provided");
     }
 
     if (title) {

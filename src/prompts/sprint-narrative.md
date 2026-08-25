@@ -7,7 +7,7 @@ Before writing, read ALL issue summaries to understand what this group collectiv
 Return a JSON object for this group:
 {
   "groupKey": "EXACTLY the group key from the input — must match verbatim (e.g. PROJ-100, _no_epic_ for epics; Alice Martin, Bob Chen for team members)",
-  "delivered": ["paragraph of delivered work — NO ticket keys, NO links"],
+  "delivered": ["paragraph of delivered work with inline citations"],
   "inProgress": ["paragraph of in-progress work with inline citations"],
   "notStarted": ["paragraph of not-started work with inline citations"]
 }
@@ -15,11 +15,10 @@ Return a JSON object for this group:
 Omit "delivered", "inProgress", or "notStarted" if the group has no issues in that status.
 
 Inline issue references:
-- CRITICAL: "delivered" paragraphs must contain ZERO issue keys, ZERO links. Pure prose only.
-- For "inProgress" and "notStarted": cite issues inline using this exact format:
+- Cite issues inline in ALL sections (delivered, inProgress, notStarted) using this exact format:
   ([KEY](JIRA_BASE/KEY) · Assignee Name · Status)
-  where Status is the actual status from the [Status: ...] tag on the issue (e.g. QA, In Review, Dev Complete), NOT the status category heading.
-- Every in-progress and not-started issue MUST appear as an inline citation. Do not drop any.
+  where Status is the actual status from the [Status: ...] tag on the issue (e.g. QA, In Review, Dev Complete, Done), NOT the status category heading.
+- Every issue MUST appear as an inline citation. Do not drop any.
 
 Writing rules:
 - COMPLETENESS IS PARAMOUNT. Every issue you receive must be represented in the narrative. A reader should be able to trace every issue to a sentence.

@@ -1,7 +1,20 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { parseNotionId } from "./parse-url.js";
 import { parseFetchResponse } from "./fetch-page.js";
 import { parseCreateResponse } from "./create-page.js";
+import { updateNotionPageTool } from "./update-page.js";
+
+vi.mock("./client.js", () => ({
+  callNotionTool: vi.fn(async () => ({
+    content: [{ type: "text", text: "OK" }],
+    isError: false,
+  })),
+  extractTextContent: vi.fn(() => "OK"),
+}));
+
+vi.mock("../../lib/agent-loop.js", () => ({
+  trace: vi.fn(),
+}));
 
 describe("parseNotionId", () => {
   it("extracts ID from standard notion.so URL", () => {
@@ -91,5 +104,43 @@ describe("parseCreateResponse", () => {
     const result = parseCreateResponse(raw);
     expect(result.pageId).toBe("");
     expect(result.url).toBe("");
+  });
+});
+
+// --- update_notion_page mode tests ---
+
+describe("updateNotionPageTool.execute", () => {
+  let mockCallNotionTool: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    const client = await import("./client.js");
+    mockCallNotionTool = client.callNotionTool as ReturnType<typeof vi.fn>;
+    mockCallNotionTool.mockClear();
+    mockCallNotionTool.mockResolvedValue({
+      content: [{ type: "text", text: "OK" }],
+      isError: false,
+    });
+  });
+
+  const PAGE_ID = "a1b2c3d4e5f67890abcdef1234567890";
+  const PAGE_URL = `https://www.notion.so/workspace/Page-${PAGE_ID}`;
+
+  // [tested] Scenario: Full replace mode (default)
+  it("calls replace_content when mode is 'replace'", async () => {
+    const context = {
+      toolCallLog: [],
+      config: {},
+    };
+
+    await updateNotionPageTool.execute!(
+      { pageUrl: PAGE_URL, content: "# New Content" },
+      context as any,
+    );
+
+    expect(mockCallNotionTool).toHaveBeenCalledWith("notion-update-page", {
+      page_id: PAGE_ID,
+      command: "replace_content",
+      new_str: "# New Content",
+    });
   });
 });
