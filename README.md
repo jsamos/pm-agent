@@ -46,11 +46,40 @@ cp src/config/roster.example.json src/config/roster.json
 Create a `.env` file with your keys:
 ```bash
 OPENAI_API_KEY=sk-...
-OPENAI_TPM_LIMIT=30000      # optional — pace LLM calls to your org TPM (recommended on tier-1 accounts)
+OPENAI_TPM_LIMIT=30000      # optional — see LLM rate limiting below
 LLM_TOKEN_ESTIMATE=3000     # optional — pre-call token reservation when TPM limiting is enabled
+LLM_MAX_RETRIES=5            # optional — reactive 429 retries (default 5)
 SLACK_CLIENT_ID=your-slack-app-client-id
 SLACK_CLIENT_SECRET=your-slack-app-client-secret
 ```
+
+### LLM rate limiting
+
+Sprint narrative generation fires many parallel LLM calls (one per epic or assignee group). On lower OpenAI tiers that can burst past your org's **tokens-per-minute (TPM)** limit and return 429 errors.
+
+When `OPENAI_TPM_LIMIT` is set, all LLM calls in a single agent run share one rolling 60-second token budget at the OpenAI provider layer. Before each call the harness **reserves** an estimated token count; after the call it records actual usage from the response and adjusts the reservation. If the window is full, it waits until older usage expires:
+
+```
+  [llm] TPM wait — 12.3s (28000/30000 used, reserving ~3000)
+```
+
+When `OPENAI_TPM_LIMIT` is **unset**, there is no proactive pacing — calls go out as fast as the agent requests them. Reactive 429 retry still applies via `withRateLimitRetry` (respecting `retry-after-ms` headers when present).
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPENAI_TPM_LIMIT` | unset (off) | Your org TPM cap. Set to enable pacing. |
+| `LLM_TOKEN_ESTIMATE` | `3000` | Tokens reserved before each call starts. Increase if narrative calls routinely exceed this. |
+| `LLM_MAX_RETRIES` | `5` | Max reactive retries on HTTP 429 after pacing. |
+
+**Recommended for tier-1 accounts:**
+
+```bash
+OPENAI_TPM_LIMIT=30000
+```
+
+Use whatever limit matches your [OpenAI org rate limits](https://platform.openai.com/docs/guides/rate-limits). The orchestrator and all inner narrative calls draw from the same budget — you do not need separate concurrency settings.
+
+See [`openspec/specs/llm-rate-limit/spec.md`](openspec/specs/llm-rate-limit/spec.md) for the full behavioral spec.
 
 ### Authentication
 
@@ -181,7 +210,7 @@ npm test              # run all tests
 npm run test:watch    # watch mode
 ```
 
-203 tests covering tool logic, markdown assembly, cache operations, agent loop mechanics, skill loading, selective regeneration, Notion update modes, and execute-level flows with mocked LLM and MCP responses. No tests make live LLM or network calls.
+Tests cover tool logic, markdown assembly, cache operations, the agent loop, skill loading, selective regeneration, Notion update modes, LLM rate limiting, and execute-level flows with mocked LLM and MCP responses. No tests make live LLM or network calls.
 
 ## Utility scripts
 
