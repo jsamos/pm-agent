@@ -55,4 +55,43 @@ describe("createRateLimitedLLM", () => {
     expect(inner.generate).toHaveBeenCalledTimes(2);
     expect(bucket.usedTokens()).toBe(4000);
   });
+
+  it("records reservation estimate when usage is missing", async () => {
+    const bucket = new TokenBucket({ limit: 30_000 });
+    const inner: LLM = {
+      generate: vi.fn(async () => ({
+        content: "ok",
+        toolCalls: [],
+        finishReason: "stop" as const,
+      })),
+      generateWithTools: vi.fn(),
+    };
+    const llm = createRateLimitedLLM(inner, bucket, 3000);
+    const pending = llm.generate([{ role: "user", content: "hi" }]);
+    await vi.runAllTimersAsync();
+    await pending;
+
+    expect(bucket.usedTokens()).toBe(3000);
+  });
+
+  it("shares one bucket across multiple callers", async () => {
+    const bucket = new TokenBucket({ limit: 6000 });
+    const inner: LLM = {
+      generate: vi.fn(async () => mockResponse(4000)),
+      generateWithTools: vi.fn(async () => mockResponse(4000)),
+    };
+    const llm = createRateLimitedLLM(inner, bucket, 3000);
+
+    const first = llm.generate([{ role: "user", content: "a" }]);
+    await vi.runAllTimersAsync();
+    await first;
+
+    const second = llm.generateWithTools([], []);
+    await vi.runAllTimersAsync();
+    await second;
+
+    expect(inner.generate).toHaveBeenCalledTimes(1);
+    expect(inner.generateWithTools).toHaveBeenCalledTimes(1);
+    expect(bucket.usedTokens()).toBe(4000);
+  });
 });
