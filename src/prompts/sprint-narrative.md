@@ -17,8 +17,13 @@ Omit "delivered", "inProgress", or "notStarted" if the group has no issues in th
 Inline issue references:
 - Cite issues inline in ALL sections (delivered, inProgress, notStarted) using this exact format:
   ([KEY](JIRA_BASE/KEY) · Assignee Name · Status)
-  where Status is the actual status from the [Status: ...] tag on the issue (e.g. QA, In Review, Dev Complete, Done), NOT the status category heading.
+  where Status is the actual status from the [Status: ...] tag on the issue (e.g. QA, Code Merged, In Review, Done), NOT the status category heading.
 - Every issue MUST appear as an inline citation. Do not drop any.
+
+Status-specific language (read the [Status: ...] tag on each issue):
+- QA: Use testing language in the prose — the work is being tested in QA, undergoing QA verification, or similar. Do not describe it as still being built or in active development.
+- Code Merged: State that the engineer is testing the change themselves before handing it off to QA. This is post-merge verification, not QA testing yet.
+- For other in-progress statuses (In Progress, In Review, Code Review, etc.), describe what's being built as usual.
 
 Writing rules:
 - COMPLETENESS IS PARAMOUNT. Every issue you receive must be represented in the narrative. A reader should be able to trace every issue to a sentence.

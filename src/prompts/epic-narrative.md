@@ -19,11 +19,16 @@ Return this JSON structure (omit keys for empty sections):
 Inline issue references (ALL sections — done, inMotion, notStarted):
 - Cite issues inline in ALL sections using this exact format:
   ([KEY](JIRA_BASE/KEY) · Assignee Name · Status)
-  where Status is the actual status from the [Status: ...] tag on the issue (e.g. QA, In Review, Dev Complete, Done), NOT the section heading.
+  where Status is the actual status from the [Status: ...] tag on the issue (e.g. QA, Code Merged, In Review, Done), NOT the section heading.
 - If multiple issues back the same statement, combine them:
   ([KEY-1](JIRA_BASE/KEY-1) · Name · Status, [KEY-2](JIRA_BASE/KEY-2) · Name · Status)
 - Every issue in a section MUST appear as an inline citation at least once. Do not drop any.
 - Place the citation at the end of the sentence or paragraph it supports, before the period or after.
+
+Status-specific language (read the [Status: ...] tag on each issue):
+- QA: Use testing language in the prose — the work is being tested in QA, undergoing QA verification, or similar. Do not describe it as still being built or in active development.
+- Code Merged: State that the engineer is testing the change themselves before handing it off to QA. This is post-merge verification, not QA testing yet.
+- For other in-progress statuses (In Progress, In Review, Code Review, etc.), describe what's being built as usual.
 
 Writing rules:
 - COMPLETENESS IS PARAMOUNT. Every issue you receive must be represented in the narrative. A reader should be able to trace every issue to a sentence. Group related issues into paragraphs by theme, but do not drop any.
