@@ -34,6 +34,6 @@ export async function runAgent(task: string, context: ExecutionContext): Promise
     userMessage: task,
     registry,
     context,
-    maxTurns: 10,
+    maxTurns: 12,
   });
 }

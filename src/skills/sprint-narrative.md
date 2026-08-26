@@ -11,12 +11,14 @@ Sprint narrative (follow this order EXACTLY):
      Read the diff summary, then decide:
      a. If "No changes since …": reply with that exact summary and STOP. Include the baseline timestamp and the number of issues checked. Do NOT call save, group_issues, or generate_sprint_narrative.
      b. If changed or first run: reply noting what changed (e.g. "3 added, 1 status change since 2026-08-17T14:30"), then call jira_search_snapshots({ action: "save" }) and continue to step 5.
-     c. If the user explicitly said "regenerate" / "rerun" / "refresh" / "full": skip diff, call jira_narrative_cache({ action: "remove_thread" }) to discard cached prose for this query, then continue to step 5.
+     c. If the user explicitly asked to regenerate ALL narrative prose from scratch ("regenerate", "rerun", "refresh narrative", "ignore cache"): call jira_narrative_cache({ action: "remove_thread" }) to discard cached prose, then continue to step 5.
+        Do NOT call remove_thread when the user only asked to "full rewrite" or "full replace" a Notion page — that means replace the page body in step 7, and selective narrative cache still applies.
   5. Call group_issues EXACTLY ONCE with one of these groupings:
      - Default: group_issues({ groupBy: ["epic", "status"] })
      - Per-person view (user asks "by assignee", "by person", "by team member", or "assignee then epic"): group_issues({ groupBy: ["assignee", "status", "epic"] })
      Do NOT call group_issues twice. Pick one grouping based on the user's request.
-  6. generate_sprint_narrative to write the prose narrative.
+  6. Call generate_sprint_narrative EXACTLY ONCE to write the prose narrative.
+     Do NOT call it again in the same run — even if a prior call returned an error. For Notion or Slack, use contentFrom: "generate_sprint_narrative" on the destination tool — that forwards the narrative already generated.
      The tool automatically caches per-group prose and reuses unchanged groups on subsequent runs.
      When tickets change, only affected groups are regenerated — the rest come from cache.
-  7. (Optional) If the user provides a Notion page URL for an existing report, call update_notion_page with contentFrom: "generate_sprint_narrative". The assembled narrative combines cached and freshly regenerated sections — the full page is replaced in Notion.
+  7. (Optional) If the user provides a Notion page URL for an existing report, call update_notion_page with contentFrom: "generate_sprint_narrative" (do NOT call generate_sprint_narrative again). The assembled narrative combines cached and freshly regenerated sections — the full page is replaced in Notion.

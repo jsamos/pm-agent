@@ -506,6 +506,38 @@ function extractJqlFromLog(log: { tool: string; result: unknown }[]): string | n
 }
 
 /**
+ * If the orchestrator calls generate_sprint_narrative twice in one run, reuse the
+ * first result instead of burning LLM calls again on the same diff.
+ */
+export function findPriorNarrativeInLog(
+  log: { tool: string; args: unknown; result: unknown }[],
+): { narrative: string; summary: string } | null {
+  const lastGenIdx = log.findLastIndex((tc) => tc.tool === "generate_sprint_narrative");
+  if (lastGenIdx < 0) return null;
+
+  const after = log.slice(lastGenIdx + 1);
+  const invalidated = after.some((tc) => {
+    if (tc.tool === "group_issues") return true;
+    if (tc.tool === "jira_narrative_cache") {
+      return (tc.args as Record<string, unknown>).action === "remove_thread";
+    }
+    return false;
+  });
+  if (invalidated) return null;
+
+  const result = log[lastGenIdx].result as { narrative?: string; summary?: string; error?: string } | null;
+  if (result?.error) {
+    throw new Error(`${result.error} (generate_sprint_narrative already failed this run — do not retry)`);
+  }
+  if (!result?.narrative) return null;
+
+  return {
+    narrative: result.narrative,
+    summary: result.summary || "Sprint narrative generated.",
+  };
+}
+
+/**
  * Split assembled markdown into per-group rendered sections.
  * Groups are separated by \n\n---\n\n in the assembled output.
  */
@@ -516,7 +548,7 @@ export function splitMarkdownSections(markdown: string): string[] {
 export const generateSprintNarrativeTool: Tool = {
   name: "generate_sprint_narrative",
   description:
-    "Generate a prose sprint narrative from the last group_issues result. Expects group_issues called with ['epic', 'status'] or ['assignee', 'status']. Uses parallel LLM calls (one per group). Automatically reuses cached prose for groups with no ticket changes. Returns markdown.",
+    "Generate a prose sprint narrative from the last group_issues result. Expects group_issues called with ['epic', 'status'] or ['assignee', 'status']. Uses parallel LLM calls (one per group). Automatically reuses cached prose for groups with no ticket changes. Call once per run — for Notion/Slack, use contentFrom instead of calling again. Returns markdown.",
   parameters: {
     type: "object",
     properties: {},
@@ -526,6 +558,15 @@ export const generateSprintNarrativeTool: Tool = {
     const log = context.toolCallLog;
     if (!log || log.length === 0) {
       throw new Error("No tool call log available — run group_issues first.");
+    }
+
+    const prior = findPriorNarrativeInLog(log);
+    if (prior) {
+      process.stderr.write("  [narrative] Already generated this run — reusing prior result\n");
+      return {
+        narrative: prior.narrative,
+        summary: `${prior.summary} (reused — already generated this run). Use contentFrom for Notion/Slack.`,
+      };
     }
 
     const groupEntry = [...log].reverse().find((tc) => tc.tool === "group_issues");
@@ -595,7 +636,7 @@ export const generateSprintNarrativeTool: Tool = {
       }
 
       if (llmCallCount > 0) {
-        process.stderr.write(`  [narrative] Starting ${llmCallCount} parallel LLM calls (assignee × epic)...\n`);
+        process.stderr.write(`  [narrative] Starting ${llmCallCount} LLM calls (assignee × epic)...\n`);
         const overallStart = Date.now();
 
         const results = await Promise.all(
@@ -633,7 +674,7 @@ export const generateSprintNarrativeTool: Tool = {
               process.stderr.write(`  [warn] JSON parse failed for "${compositeKey}" — ${(e as Error).message}\n`);
               return { key: compositeKey, narrative: { groupKey: compositeKey } as GroupNarrative };
             }
-          })
+          }),
         );
 
         const overallMs = Date.now() - overallStart;
@@ -715,13 +756,13 @@ export const generateSprintNarrativeTool: Tool = {
 
       let parsedGroups: GroupNarrative[];
       if (llmCallCount > 0) {
-        process.stderr.write(`  [narrative] Starting ${llmCallCount} parallel LLM calls...\n`);
+        process.stderr.write(`  [narrative] Starting ${llmCallCount} LLM calls...\n`);
         const overallStart = Date.now();
 
         parsedGroups = await Promise.all(
           groupsToGenerate.map((group) =>
-            generateForGroup(group, outerKey, jiraBase, descLimit, context.llm)
-          )
+            generateForGroup(group, outerKey, jiraBase, descLimit, context.llm),
+          ),
         );
 
         const overallMs = Date.now() - overallStart;

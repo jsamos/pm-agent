@@ -16,6 +16,7 @@ import {
   splitMarkdownSections,
   flattenToEpicUnits,
   generateSprintNarrativeTool,
+  findPriorNarrativeInLog,
   type GroupNarrative,
   type AssembleResult,
   type EpicUnit,
@@ -663,6 +664,18 @@ describe("buildGroupMessage", () => {
     const group = makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] });
     const msg = buildGroupMessage(group, "epic", JIRA_BASE, 1000);
     expect(msg).toContain(`JIRA_BASE: ${JIRA_BASE}`);
+  });
+
+  it("includes Jira workflow status on each issue", () => {
+    const group = makeEpicGroup("PROJ-1", "Alpha", {
+      inProgress: [
+        makeIssue("X-1", { status: "QA", statusCategory: "In Progress" }),
+        makeIssue("X-2", { status: "Code Merged", statusCategory: "In Progress" }),
+      ],
+    });
+    const msg = buildGroupMessage(group, "epic", JIRA_BASE, 1000);
+    expect(msg).toContain("[Status: QA]");
+    expect(msg).toContain("[Status: Code Merged]");
   });
 });
 
@@ -1396,5 +1409,88 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
 
     // Both groups regenerated — cache ignored because no diff = changedKeys is null = canReuse is false
     expect(context.llm.generate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("findPriorNarrativeInLog", () => {
+  it("returns prior narrative when generate was already called", () => {
+    const log = [
+      { tool: "group_issues", args: {}, result: {} },
+      {
+        tool: "generate_sprint_narrative",
+        args: {},
+        result: { narrative: "# Report", summary: "Sprint narrative generated — 3 LLM calls." },
+      },
+    ];
+    expect(findPriorNarrativeInLog(log)).toEqual({
+      narrative: "# Report",
+      summary: "Sprint narrative generated — 3 LLM calls.",
+    });
+  });
+
+  it("returns null when remove_thread was called after generate", () => {
+    const log = [
+      {
+        tool: "generate_sprint_narrative",
+        args: {},
+        result: { narrative: "# Report", summary: "done" },
+      },
+      { tool: "jira_narrative_cache", args: { action: "remove_thread" }, result: {} },
+    ];
+    expect(findPriorNarrativeInLog(log)).toBeNull();
+  });
+
+  it("returns null when group_issues was called again after generate", () => {
+    const log = [
+      {
+        tool: "generate_sprint_narrative",
+        args: {},
+        result: { narrative: "# Report", summary: "done" },
+      },
+      { tool: "group_issues", args: {}, result: {} },
+    ];
+    expect(findPriorNarrativeInLog(log)).toBeNull();
+  });
+
+  it("throws when prior attempt returned an error", () => {
+    const log = [
+      {
+        tool: "generate_sprint_narrative",
+        args: {},
+        result: { error: "429 Rate limit reached" },
+      },
+    ];
+    expect(() => findPriorNarrativeInLog(log)).toThrow("do not retry");
+  });
+});
+
+describe("generateSprintNarrativeTool.execute (idempotent)", () => {
+  it("reuses prior result when called twice in the same run", async () => {
+    const groups = [makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] })];
+    const priorResult = {
+      narrative: "## Alpha\n\nCached from first call.",
+      summary: "Sprint narrative generated — 1 LLM calls.",
+    };
+    const context = {
+      toolCallLog: [
+        {
+          tool: "group_issues",
+          args: {},
+          result: { groups, groupBy: ["epic", "status"], dropped: 0, summary: "test" } as GroupIssuesResult,
+        },
+        {
+          tool: "generate_sprint_narrative",
+          args: {},
+          result: priorResult,
+        },
+      ],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: { generate: vi.fn() },
+    };
+
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+    expect(context.llm.generate).not.toHaveBeenCalled();
+    expect((result as any).narrative).toBe(priorResult.narrative);
+    expect((result as any).summary).toContain("reused");
   });
 });

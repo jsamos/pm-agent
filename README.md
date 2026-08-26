@@ -46,6 +46,8 @@ cp src/config/roster.example.json src/config/roster.json
 Create a `.env` file with your keys:
 ```bash
 OPENAI_API_KEY=sk-...
+OPENAI_TPM_LIMIT=30000      # optional — pace LLM calls to your org TPM (recommended on tier-1 accounts)
+LLM_TOKEN_ESTIMATE=3000     # optional — pre-call token reservation when TPM limiting is enabled
 SLACK_CLIENT_ID=your-slack-app-client-id
 SLACK_CLIENT_SECRET=your-slack-app-client-secret
 ```

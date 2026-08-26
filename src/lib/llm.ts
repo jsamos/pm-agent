@@ -32,6 +32,15 @@ export interface LLMResponse {
   content: string | null;
   toolCalls: ToolCall[];
   finishReason: "stop" | "tool_calls" | "length" | "unknown";
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  rateLimit?: {
+    remainingTokens: number | null;
+    resetMs: number | null;
+  };
 }
 
 export interface LLM {
