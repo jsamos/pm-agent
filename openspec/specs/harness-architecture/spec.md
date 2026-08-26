@@ -4,7 +4,7 @@
 
 A harness is reusable infrastructure that makes intelligent automation possible. It is not an agent, a workflow, or a product feature. It's the platform those things run on.
 
-The harness provides: a tool registry, integration connections, configuration loading, caching, execution context, and conventions for how tools communicate. It doesn't know or care how work gets initiated — whether by an LLM, a script, a cron job, or a human typing a command.
+The harness provides: a tool registry, integration connections, configuration loading, caching, LLM creation and cross-cutting LLM policy, execution context, and conventions for how tools communicate. It doesn't know or care how work gets initiated — whether by an LLM, a script, a cron job, or a human typing a command.
 
 An agent loop is one runtime that runs on the harness. There are others: deterministic pipelines, DAG workflows, hybrid systems that delegate one fuzzy step to an LLM, or direct scripts for testing. The harness serves all of them. Tools belong to the harness, not to any runtime.
 
@@ -67,6 +67,14 @@ Tools that need external services connect on first call. The connection is manag
                        │
                        ▼
 ┌─────────────────────────────────────────────┐
+│  createHarnessContext / createLLM           │
+│  - select provider (OpenAI today)           │
+│  - apply harness LLM policy (e.g. TPM)      │
+│  - inject one shared llm into context       │
+└──────────────────────┬──────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────┐
 │  Agent (system prompt + skill index)        │
 │  - interprets intent                        │
 │  - loads workflow skill if needed           │
@@ -109,6 +117,41 @@ Every tool receives the same execution context:
 - **toolCallLog** — prior tool results in the current loop, for data passing between steps
 
 The context is the tool's window into the world. It does not contain service handles — tools manage those internally.
+
+### LLM bootstrap
+
+LLM access is harness infrastructure, not a tool or integration concern. Entry points bootstrap the execution context through `createHarnessContext`, which calls `createLLM` and passes the result to `createContext`. Tests may inject a mock `llm` directly and skip `createLLM`.
+
+**Provider vs harness policy.** Responsibilities are split across two layers:
+
+| Layer | Responsibility |
+|-------|------------------|
+| **Provider** | Transport — SDK client, authentication, parsing usage and rate-limit headers from responses, reactive retry on HTTP 429 |
+| **Harness** | Policy — provider selection, optional TPM pacing, and future cross-cutting limits applied uniformly to all callers |
+
+Providers MUST NOT apply harness policy (e.g. TPM rate limiting). That belongs in `createLLM` so policy is applied once, consistently, regardless of which provider is selected.
+
+**Bootstrap flow:**
+
+```
+Entry point
+  → createHarnessContext({ agentName, config, ... })
+    → createLLM({ provider, model })
+      → provider.create()       // raw client
+      → applyRateLimiting()     // optional harness wrapper
+    → createContext({ llm, ... })
+  → agent loop / tool.execute
+```
+
+**Rules:**
+
+- Entry points use `createHarnessContext` (or `createContext` with an injected mock in tests). They do not import or instantiate providers directly.
+- Tools and the agent loop do not construct LLMs. They receive the shared instance through `context.llm`.
+- One `LLM` instance per run. The orchestrator and composite tools (e.g. narrative generators that make inner LLM calls) share it — and therefore share any active rate-limit budget.
+
+**Supported providers.** Only OpenAI is implemented today. The provider registry in `createLLM` is structured so additional backends can be registered later; Anthropic, local models, and other hosted APIs are deferred until there is a concrete need.
+
+**TPM rate limiting (optional).** When `OPENAI_TPM_LIMIT` is set, the harness wraps the OpenAI-backed instance in a rolling 60-second token bucket. Before each call it reserves an estimated token count (`LLM_TOKEN_ESTIMATE`, default 3000); after the call it records actual usage from the response. If the window is full, the harness waits until older usage expires and logs a brief message to stderr. When the limit is unset, there is no proactive pacing — calls proceed as fast as callers request them, with reactive 429 retry remaining as a fallback at the provider layer.
 
 ## Core patterns
 
@@ -158,7 +201,11 @@ Currently this is implemented as cache tools that the agent calls explicitly. Th
 
 ### Model configuration
 
-Models are configured centrally, not scattered across tool code. Different capabilities have different reasoning demands — the orchestrator may need a stronger model than a utility tool. Centralizing model selection means upgrades don't touch agent or tool code.
+Model selection is split across two concerns:
+
+**Which model** — configured centrally in `models.json`, not scattered across tool code. Different capabilities have different reasoning demands: the orchestrator may use a stronger model than a utility tool. Composite tools pass a per-tool model name as an option on each call to the shared `context.llm` instance; upgrading models does not require changes to agent or tool code.
+
+**Which provider and how calls are paced** — resolved at bootstrap by `createLLM` via `LLM_PROVIDER` (default `openai`) and optional TPM env vars. Provider selection and rate-limit policy are per-run; model selection is per-call on the same instance.
 
 ### Tracing
 
@@ -180,6 +227,10 @@ A full trace (system prompts, LLM responses, tool results, timing) can be writte
 
 Adding a new external service = connecting to a new MCP server and building tools that call it. The agent infrastructure doesn't change. The LLM discovers new tools from the registry automatically.
 
+### New LLM providers
+
+Additional providers are deferred until needed. When one is added, implement transport in a provider module (SDK, auth, response parsing) and register it in `createLLM`'s provider map. Harness policy — TPM pacing, future shared limits — stays in `createLLM`, not in the provider. Only OpenAI is registered today.
+
 ### New capabilities
 
 A single-tool capability: build the tool, register it. The LLM can use it immediately.
@@ -190,12 +241,13 @@ A multi-step workflow: build the tools, write a skill file with the recipe, add 
 
 The harness is not coupled to the agent loop. The same tools can be driven by:
 
-- **Deterministic pipelines** — fixed step sequences with no LLM deciding. Useful when the workflow is fully known and the LLM adds no value to orchestration.
+- **Agent CLI** — `createHarnessContext({ agentName, config, ... })` then `runAgent`
+- **Deterministic pipelines** — fixed step sequences with no LLM deciding. Useful when the workflow is fully known and the LLM adds no value to orchestration. May omit an LLM entirely.
 - **DAG workflows** — dependency-ordered steps with evaluation and retry at each node. Steps declare what they depend on; the executor handles ordering and concurrency.
-- **Hybrid** — a deterministic pipeline that delegates one fuzzy step to an LLM (e.g. a fixed data pipeline that hands off to an agent for narrative generation).
-- **Scripts** — direct tool calls for testing or one-off automation.
+- **Hybrid** — a deterministic pipeline that delegates one fuzzy step to an LLM via `createHarnessContext` (e.g. a fixed data pipeline that hands off to narrative generation).
+- **Scripts** — direct tool calls for testing or one-off automation; may inject a mock `llm` through `createHarnessContext`.
 
-The key insight: tools don't know which runtime called them. This is what makes the harness composable.
+The key insight: tools don't know which runtime called them. Bootstrap is harness-owned and runtime-agnostic — every runtime that needs an LLM goes through the same factory. This is what makes the harness composable.
 
 ### Evaluation and self-correction
 

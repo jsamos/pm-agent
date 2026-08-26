@@ -2,6 +2,8 @@ import type { Client } from "@modelcontextprotocol/client";
 import type { LLM, Message, ToolDefinition, LLMResponse } from "./llm.js";
 import type { ToolCallEntry } from "./agent-loop.js";
 import { callTool } from "./connection.js";
+import { createLLM } from "./create-llm.js";
+import { getModel } from "./models.js";
 
 /**
  * Look up a prior tool's result by tool name from the call log.
@@ -70,6 +72,35 @@ export interface CreateContextOptions {
   config?: Record<string, unknown>;
   workflowName?: string;
   stepName?: string;
+}
+
+export interface CreateHarnessContextOptions {
+  mcpClient?: Client | (() => Promise<Client>);
+  /** Inject a mock LLM in tests; production callers omit this. */
+  llm?: LLM;
+  config?: Record<string, unknown>;
+  workflowName?: string;
+  stepName?: string;
+  /** Resolve model from models.json agents section (e.g. "agent"). */
+  agentName?: string;
+  model?: string;
+  provider?: string;
+}
+
+/** Bootstrap execution context with harness-managed LLM creation. */
+export function createHarnessContext(options: CreateHarnessContextOptions): ExecutionContext {
+  const llm = options.llm ?? createLLM({
+    provider: options.provider,
+    model: options.model ?? (options.agentName ? getModel(options.agentName) : undefined),
+  });
+
+  return createContext({
+    llm,
+    config: options.config,
+    workflowName: options.workflowName,
+    stepName: options.stepName,
+    mcpClient: options.mcpClient,
+  });
 }
 
 export function createContext(options: CreateContextOptions): ExecutionContext {

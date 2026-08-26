@@ -13,13 +13,13 @@ The system SHALL support an explicit TPM limit for OpenAI-backed LLM calls.
 #### Scenario: Limit configured [tested]
 
 - GIVEN `OPENAI_TPM_LIMIT` is set to 30000
-- WHEN the OpenAI LLM provider is created
+- WHEN the harness creates an LLM via `createLLM` / `createHarnessContext`
 - THEN all `generate` and `generateWithTools` calls pass through a rate limiter using that budget
 
 #### Scenario: Limit not configured [tested]
 
 - GIVEN `OPENAI_TPM_LIMIT` is unset
-- WHEN the OpenAI LLM provider is created
+- WHEN the harness creates an LLM via `createLLM` / `createHarnessContext`
 - THEN LLM calls behave as today (no proactive pacing)
 
 ### Requirement: Shared process budget

@@ -57,7 +57,7 @@ SLACK_CLIENT_SECRET=your-slack-app-client-secret
 
 Sprint narrative generation fires many parallel LLM calls (one per epic or assignee group). On lower OpenAI tiers that can burst past your org's **tokens-per-minute (TPM)** limit and return 429 errors.
 
-When `OPENAI_TPM_LIMIT` is set, all LLM calls in a single agent run share one rolling 60-second token budget at the OpenAI provider layer. Before each call the harness **reserves** an estimated token count; after the call it records actual usage from the response and adjusts the reservation. If the window is full, it waits until older usage expires:
+When `OPENAI_TPM_LIMIT` is set, all LLM calls in a single agent run share one rolling 60-second token budget. The harness applies pacing in `createLLM` (via `createHarnessContext`) before the instance reaches the agent loop or tools. Before each call it **reserves** an estimated token count; after the call it records actual usage from the response and adjusts the reservation. If the window is full, it waits until older usage expires:
 
 ```
   [llm] TPM wait — 12.3s (28000/30000 used, reserving ~3000)
@@ -68,6 +68,7 @@ When `OPENAI_TPM_LIMIT` is **unset**, there is no proactive pacing — calls go 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `OPENAI_TPM_LIMIT` | unset (off) | Your org TPM cap. Set to enable pacing. |
+| `LLM_PROVIDER` | `openai` | LLM backend selected by `createLLM`. |
 | `LLM_TOKEN_ESTIMATE` | `3000` | Tokens reserved before each call starts. Increase if narrative calls routinely exceed this. |
 | `LLM_MAX_RETRIES` | `5` | Max reactive retries on HTTP 429 after pacing. |
 
@@ -161,7 +162,7 @@ See [`openspec/specs/harness-architecture/spec.md`](openspec/specs/harness-archi
 src/
 ├── agent/          Agent orchestration (system prompt, registry)
 ├── config/         Runtime config (jira.json gitignored, examples committed)
-├── lib/            Shared infrastructure (agent loop, cache, LLM, models)
+├── lib/            Shared infrastructure (agent loop, cache, createLLM, models)
 ├── prompts/        LLM system prompts for single-task agents
 ├── scripts/        CLI entry points
 ├── skills/         Multi-step workflow recipes (loaded on demand)

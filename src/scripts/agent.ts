@@ -6,9 +6,7 @@
  */
 
 import "dotenv/config";
-import { openaiProvider } from "../lib/providers/openai.js";
-import { createContext } from "../lib/context.js";
-import { getModel } from "../lib/models.js";
+import { createHarnessContext } from "../lib/context.js";
 import { runAgent } from "../agent/agent.js";
 import config from "../config/jira.json" with { type: "json" };
 
@@ -20,9 +18,8 @@ if (!task) {
 }
 
 async function main() {
-  const llm = openaiProvider.create({ model: getModel("agent") });
-  const context = createContext({
-    llm,
+  const context = createHarnessContext({
+    agentName: "agent",
     config: config as unknown as Record<string, unknown>,
     workflowName: "agent",
     stepName: "run",

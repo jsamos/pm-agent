@@ -10,8 +10,6 @@ import type {
   ToolDefinition,
 } from "../llm.js";
 import { withRateLimitRetry } from "../rate-limit-retry.js";
-import { createRateLimitedLLM } from "../rate-limited-llm.js";
-import { TokenBucket, tokenEstimate, tpmLimitFromEnv } from "../token-bucket.js";
 
 const DEFAULT_MODEL = "gpt-4o";
 
@@ -201,12 +199,6 @@ export const openaiProvider: LLMProvider = {
       );
     }
     const model = config?.model as string | undefined;
-    const inner = new OpenAILLM(apiKey, model);
-
-    const tpmLimit = tpmLimitFromEnv();
-    if (tpmLimit == null) return inner;
-
-    const bucket = new TokenBucket({ limit: tpmLimit });
-    return createRateLimitedLLM(inner, bucket, tokenEstimate());
+    return new OpenAILLM(apiKey, model);
   },
 };
