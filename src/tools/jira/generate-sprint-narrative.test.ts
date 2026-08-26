@@ -1494,3 +1494,78 @@ describe("generateSprintNarrativeTool.execute (idempotent)", () => {
     expect((result as any).summary).toContain("reused");
   });
 });
+
+// [tested] Scenario: Removed group (in cache, not in current grouping)
+describe("generateSprintNarrativeTool.execute (removed group)", () => {
+  const TEST_CACHE = join(process.cwd(), "output", "test-removed-group");
+  const JQL = "project = PROJ AND sprint in openSprints()";
+  const THREAD = computeThread(JQL);
+
+  beforeEach(() => {
+    setCacheRoot(TEST_CACHE);
+    if (existsSync(TEST_CACHE)) rmSync(TEST_CACHE, { recursive: true });
+    mkdirSync(TEST_CACHE, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_CACHE)) rmSync(TEST_CACHE, { recursive: true });
+  });
+
+  it("omits cached groups that are not in the current grouping", async () => {
+    saveNarrativeCache({
+      thread: THREAD,
+      groupBy: ["epic", "status"],
+      sections: [
+        {
+          groupKey: "PROJ-1",
+          groupLabel: "Alpha",
+          issueKeys: ["X-1"],
+          prose: { groupKey: "PROJ-1", delivered: ["Alpha cached prose."] },
+          renderedMarkdown: "## Alpha\n\nAlpha cached prose.",
+        },
+        {
+          groupKey: "PROJ-OLD",
+          groupLabel: "Removed Epic",
+          issueKeys: ["X-99"],
+          prose: { groupKey: "PROJ-OLD", delivered: ["Old cached prose."] },
+          renderedMarkdown: "## Removed Epic\n\nOld cached prose.",
+        },
+      ],
+    });
+
+    const groups = [makeEpicGroup("PROJ-1", "Alpha", { done: [makeIssue("X-1")] })];
+    const context = {
+      toolCallLog: [
+        {
+          tool: "search_jira_issues",
+          args: {},
+          result: { jql: JQL, issues: [makeIssue("X-1")] },
+        },
+        {
+          tool: "jira_search_snapshots",
+          args: { action: "diff" },
+          result: {
+            changed: true,
+            added: [],
+            removed: ["X-99"],
+            statusChanges: [],
+            baselineTimestamp: "2026-08-20T10:00",
+          },
+        },
+        {
+          tool: "group_issues",
+          args: {},
+          result: { groups, groupBy: ["epic", "status"], dropped: 0, summary: "test" } as GroupIssuesResult,
+        },
+      ],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: { generate: vi.fn() },
+    };
+
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+    expect(context.llm.generate).not.toHaveBeenCalled();
+    expect((result as any).narrative).toContain("Alpha cached prose.");
+    expect((result as any).narrative).not.toContain("Removed Epic");
+    expect((result as any).narrative).not.toContain("Old cached prose.");
+  });
+});

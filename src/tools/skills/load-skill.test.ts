@@ -38,4 +38,14 @@ describe("load_skill", () => {
     expect(loadSkillTool.description).toContain("epic-narrative");
     expect(loadSkillTool.description).toContain("roster");
   });
+
+  // [tested] Scenario: Prose regen clears cached entries (smart-update spec)
+  it("sprint-narrative skill instructs remove_thread on prose regen keywords", async () => {
+    const result = (await loadSkillTool.execute({ name: "sprint-narrative" }, dummyCtx)) as {
+      instructions: string;
+    };
+    expect(result.instructions).toContain('jira_narrative_cache({ action: "remove_thread" })');
+    expect(result.instructions).toContain("regenerate");
+    expect(result.instructions).toContain("full rewrite");
+  });
 });

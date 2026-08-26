@@ -10,19 +10,19 @@ Create and update Notion pages through the harness tool layer. The agent interac
 
 The system SHALL retrieve the content of a Notion page by URL or ID and return it as markdown.
 
-#### Scenario: Fetch by URL
+#### Scenario: Fetch by URL [tested]
 
 - GIVEN a valid Notion page URL
 - WHEN fetch_notion_page is called with the URL
 - THEN the page title and markdown content are returned
 
-#### Scenario: Fetch by page ID
+#### Scenario: Fetch by page ID [tested]
 
 - GIVEN a valid Notion page ID (UUID)
 - WHEN fetch_notion_page is called with the ID
 - THEN the page title and markdown content are returned
 
-#### Scenario: Invalid page
+#### Scenario: Invalid page [tested]
 
 - GIVEN a URL or ID that does not resolve to a Notion page
 - WHEN fetch_notion_page is called
@@ -32,20 +32,20 @@ The system SHALL retrieve the content of a Notion page by URL or ID and return i
 
 The system SHALL create a new child page under a specified parent page.
 
-#### Scenario: Create with markdown content
+#### Scenario: Create with markdown content [tested]
 
 - GIVEN a parent page URL, a title, and markdown content
 - WHEN create_notion_page is called
 - THEN a new page is created under the parent with the given title and content
 - AND the new page's URL is returned
 
-#### Scenario: Create with content from prior tool
+#### Scenario: Create with content from prior tool [tested]
 
 - GIVEN a parent page URL, a title, and a contentFrom reference to a prior tool
 - WHEN create_notion_page is called
 - THEN the full output of the referenced tool is used as the page content
 
-#### Scenario: Missing parent
+#### Scenario: Missing parent [tested]
 
 - GIVEN a parent URL that does not resolve to a valid page
 - WHEN create_notion_page is called
@@ -55,14 +55,14 @@ The system SHALL create a new child page under a specified parent page.
 
 The system SHALL replace the content of an existing Notion page.
 
-#### Scenario: Full content replace
+#### Scenario: Full content replace [tested]
 
 - GIVEN a page URL and new markdown content
 - WHEN update_notion_page is called
 - THEN the page content is replaced with the new markdown
 - AND the page title MAY be updated if a new title is provided
 
-#### Scenario: Update with content from prior tool
+#### Scenario: Update with content from prior tool [tested]
 
 - GIVEN a page URL and a contentFrom reference
 - WHEN update_notion_page is called
@@ -72,19 +72,19 @@ The system SHALL replace the content of an existing Notion page.
 
 The system SHALL extract Notion page IDs from standard Notion URLs.
 
-#### Scenario: Standard URL
+#### Scenario: Standard URL [tested]
 
 - GIVEN a URL like `https://www.notion.so/workspace/Page-Title-a1b2c3d4e5f67890abcdef1234567890`
 - WHEN the URL is parsed
 - THEN the 32-character hex page ID is extracted
 
-#### Scenario: Notion Sites URL
+#### Scenario: Notion Sites URL [tested]
 
 - GIVEN a URL like `https://myspace.notion.site/Page-Title-abc123def456`
 - WHEN the URL is parsed
 - THEN the page ID is extracted
 
-#### Scenario: Raw UUID passthrough
+#### Scenario: Raw UUID passthrough [tested]
 
 - GIVEN a raw UUID string (with or without dashes)
 - WHEN it is passed as a page identifier
@@ -94,7 +94,7 @@ The system SHALL extract Notion page IDs from standard Notion URLs.
 
 The agent SHALL NOT have direct access to Notion MCP tools. All Notion interactions MUST go through harness tools that wrap MCP calls internally.
 
-#### Scenario: Agent tool surface
+#### Scenario: Agent tool surface [tested]
 
 - GIVEN the agent's tool registry
 - WHEN the agent lists available tools
@@ -104,7 +104,7 @@ The agent SHALL NOT have direct access to Notion MCP tools. All Notion interacti
 
 Notion MCP connections SHALL be lazy and managed internally by the tool layer. The agent loop and execution context SHALL NOT hold Notion connection handles.
 
-#### Scenario: First call connects
+#### Scenario: First call connects [tested]
 
 - GIVEN no prior Notion MCP connection
 - WHEN a Notion harness tool is called for the first time

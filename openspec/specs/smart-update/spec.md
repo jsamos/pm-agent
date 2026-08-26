@@ -52,11 +52,12 @@ The system SHALL allow removing cached narrative entries without regenerating a 
 - THEN all entries for thread A are deleted
 - AND entries for thread B remain
 
-#### Scenario: Full override clears cached prose for the query [manual]
+#### Scenario: Prose regen clears cached entries [tested]
 
-- GIVEN the user says "regenerate", "rerun", "refresh", or "full"
+- GIVEN the user asked to regenerate narrative prose from scratch (e.g. "regenerate", "refresh narrative", "ignore cache")
 - WHEN the sprint-narrative skill runs
-- THEN jira_narrative_cache remove_thread is called for the current JQL thread before generate_sprint_narrative
+- THEN the skill instructs calling jira_narrative_cache remove_thread for the current JQL thread before generate_sprint_narrative
+- AND a Notion "full rewrite" alone does NOT trigger remove_thread
 
 ### Requirement: Selective Regeneration
 
@@ -81,7 +82,7 @@ The system SHALL skip LLM calls for groups whose tickets have not changed since 
 - WHEN generate_sprint_narrative processes this group
 - THEN an LLM call is made to generate the prose
 
-#### Scenario: Removed group (in cache, not in current grouping)
+#### Scenario: Removed group (in cache, not in current grouping) [tested]
 
 - GIVEN a group that exists in the narrative cache but not in the current grouping
 - WHEN generate_sprint_narrative assembles the output
