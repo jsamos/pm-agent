@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getModel, getToolModel } from "./models.js";
-import { resolveModel } from "./resolve-model.js";
+import { resolveModel, getDefaultLogicalModel } from "./resolve-model.js";
 
 describe("getToolModel", () => {
   it("returns logical model names from models.json", () => {
@@ -15,12 +15,16 @@ describe("getModel", () => {
   });
 });
 
-describe("bedrock:ask route validation", () => {
-  it("accepts Bedrock-routed logical models", () => {
-    expect(resolveModel("sonnet-4.6").provider).toBe("bedrock");
+describe("bedrock:ask model selection", () => {
+  it("uses models.json default as the logical model", () => {
+    expect(getDefaultLogicalModel()).toBe("gpt-4o");
   });
 
-  it("rejects non-Bedrock routes for bedrock:ask", () => {
-    expect(resolveModel("gpt-4o").provider).toBe("openai");
+  it("rejects non-Bedrock defaults", () => {
+    expect(resolveModel(getDefaultLogicalModel()).provider).toBe("openai");
+  });
+
+  it("accepts Bedrock-routed logical models", () => {
+    expect(resolveModel("sonnet-4.6").provider).toBe("bedrock");
   });
 });

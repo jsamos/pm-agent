@@ -149,18 +149,17 @@ OpenAI TPM rate limiting SHALL continue to apply only to OpenAI-routed calls.
 
 The `bedrock:ask` CLI SHALL resolve logical model names through the same routing and Bedrock config as the harness.
 
-#### Scenario: Ask with logical name [manual]
+#### Scenario: Ask with models.json Bedrock default [manual]
 
-- GIVEN `routes["sonnet-4.6"]` points to Bedrock
-- AND `LLM_MODEL=sonnet-4.6` (or equivalent documented env) is set
+- GIVEN `models.json` default is `"sonnet-4.6"` and routes to Bedrock
 - WHEN `npm run bedrock:ask -- 'hello'` runs
 - THEN it resolves `"sonnet-4.6"` and invokes Converse with the matching inference profile ARN
 
-#### Scenario: Ask with non-Bedrock route [tested]
+#### Scenario: Ask with non-Bedrock default [tested]
 
-- GIVEN `LLM_MODEL=gpt-4o` and that route points to OpenAI
+- GIVEN `models.json` default is `"gpt-4o"` and that route points to OpenAI
 - WHEN `npm run bedrock:ask` runs
-- THEN it exits with an error explaining that `bedrock:ask` requires a Bedrock-routed model
+- THEN it exits with an error explaining that `bedrock:ask` requires a Bedrock-routed default
 
 ### Requirement: No real company data in tests
 

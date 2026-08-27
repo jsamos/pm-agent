@@ -61,7 +61,7 @@ export function resolveBedrockModelId(options: {
 
   const key = options.modelKey?.trim() || options.config.default;
   if (!key) {
-    throw new Error("No Bedrock model selected. Set LLM_MODEL in .env or models.json default.");
+    throw new Error("No Bedrock model selected. Set models.json default to a Bedrock-routed logical name.");
   }
 
   const entry = options.config.models[key];
@@ -111,7 +111,7 @@ export function formatBedrockModelList(config: BedrockConfig): string {
   lines.push("Usage:");
   lines.push("  Copy bedrock.example.json → bedrock.json and set ARNs for your AWS account.");
   lines.push("  ARNs from SSM must match the account in AWS_PROFILE.");
-  lines.push("  LLM_MODEL=sonnet-4.6 npm run bedrock:ask -- 'your prompt'");
+  lines.push("  npm run bedrock:ask -- 'your prompt'  # uses models.json default");
   lines.push("  npm run bedrock:models");
 
   return lines.join("\n");

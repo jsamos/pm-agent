@@ -105,7 +105,6 @@ When `OPENAI_TPM_LIMIT` is **unset**, there is no proactive pacing — OpenAI ca
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `OPENAI_TPM_LIMIT` | unset (off) | Your org TPM cap for OpenAI-routed calls. |
-| `LLM_MODEL` | `models.json` default | Override the default logical model (also used by `bedrock:ask`). |
 | `LLM_TOKEN_ESTIMATE` | `3000` | Tokens reserved before each OpenAI call starts. |
 | `LLM_MAX_RETRIES` | `5` | Max reactive retries on HTTP 429 after pacing. |
 

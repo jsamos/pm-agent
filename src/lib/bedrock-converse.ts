@@ -112,7 +112,7 @@ export async function bedrockConverse(options: ConverseOptions): Promise<Convers
     JSON.stringify(toConverseMessages(options.messages)),
     "--inference-config",
     JSON.stringify({
-      maxTokens: options.maxTokens ?? 1024,
+      maxTokens: options.maxTokens ?? 4096,
       ...(options.temperature != null ? { temperature: options.temperature } : {}),
     }),
     "--region",

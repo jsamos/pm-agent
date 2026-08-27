@@ -4,8 +4,9 @@
  *
  * Usage:
  *   npm run bedrock:ask -- 'Say hello in one word.'
- *   LLM_MODEL=opus-4.6 npm run bedrock:ask -- '...'
  *   npm run bedrock:models   # list bedrock.json keys and ARNs
+ *
+ * Model selection comes from models.json default (must route to Bedrock).
  */
 
 import "dotenv/config";
@@ -45,8 +46,8 @@ function usage(): void {
   process.stderr.write(
     "Usage: npm run bedrock:ask -- '<your prompt>'\n\n" +
       "Requires in .env:\n" +
-      "  AWS_PROFILE\n" +
-      "  LLM_MODEL (logical name, e.g. sonnet-4.6) — defaults to models.json default\n\n" +
+      "  AWS_PROFILE\n\n" +
+      "Uses models.json default as the logical model (must be a Bedrock route).\n\n" +
       "Optional:\n" +
       "  BEDROCK_MODEL_ID — override with a raw inference profile ARN\n" +
       "  AWS_REGION\n" +
@@ -67,12 +68,12 @@ async function main() {
     process.exit(1);
   }
 
-  const logicalModel = process.env.LLM_MODEL?.trim() || getDefaultLogicalModel();
+  const logicalModel = getDefaultLogicalModel();
   const route = resolveModel(logicalModel);
   if (route.provider !== "bedrock") {
     process.stderr.write(
-      `LLM_MODEL=${logicalModel} routes to provider "${route.provider}". ` +
-        "bedrock:ask requires a Bedrock-routed model (see models.json routes).\n",
+      `models.json default "${logicalModel}" routes to provider "${route.provider}". ` +
+        "bedrock:ask requires a Bedrock-routed default (see models.json routes).\n",
     );
     process.exit(1);
   }
