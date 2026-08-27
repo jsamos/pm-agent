@@ -15,9 +15,18 @@ import type { Tool } from "../registry.js";
 import type { ExecutionContext } from "../../lib/context.js";
 import type { JiraIssue } from "./search-issues.js";
 import type { IssueGroup, GroupIssuesResult } from "./group-issues.js";
-import { getToolModel } from "../../lib/models.js";
+import { nestGroupIssues } from "./group-issues.js";
+import { getToolLlmConfig } from "../../lib/models.js";
 import { extractDiffFromLog, formatDiffBlock, epicGroupKeyFromParent, type ParentChange } from "./format-diff.js";
-import { trace } from "../../lib/agent-loop.js";
+import {
+  callStructuredNarrativeLlm,
+  parseGroupNarrativeResponse,
+  SUBMIT_GROUP_NARRATIVE_TOOL,
+  countExpectedSections,
+  isGroupNarrativeComplete,
+} from "../../lib/narrative-llm.js";
+import { resolveDescriptionLimit } from "../../lib/narrative-config.js";
+import type { ToolLlmConfig } from "../../lib/resolve-model.js";
 import {
   computeThread,
   collectGroupIssueKeys,
@@ -29,20 +38,6 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT = readFileSync(resolve(__dirname, "../../prompts/sprint-narrative.md"), "utf-8").trim();
-
-const DEFAULT_DESC_LIMIT = 1000;
-
-export function extractJson(raw: string): string {
-  let text = raw.trim();
-  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (fenceMatch) text = fenceMatch[1].trim();
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {
-    text = text.slice(firstBrace, lastBrace + 1);
-  }
-  return text;
-}
 
 function collectIssues(group: IssueGroup): JiraIssue[] {
   if (group.subGroups) {
@@ -398,54 +393,38 @@ export function assembleThreeLevelMarkdown(
   };
 }
 
+async function callGroupNarrativeLlm(
+  llm: ExecutionContext["llm"],
+  groupKey: string,
+  userMessage: string,
+  traceLabel: string,
+  toolLlm: ToolLlmConfig,
+): Promise<GroupNarrative> {
+  return callStructuredNarrativeLlm({
+    llm,
+    tracingTool: "generate_sprint_narrative",
+    systemPrompt: SYSTEM_PROMPT,
+    userMessage,
+    tools: [SUBMIT_GROUP_NARRATIVE_TOOL],
+    model: toolLlm.model,
+    traceLabel,
+    maxTokens: toolLlm.maxTokens,
+    temperature: toolLlm.temperature,
+    parseResponse: (response) => parseGroupNarrativeResponse(response, groupKey),
+    isComplete: (parsed) => isGroupNarrativeComplete(parsed, countExpectedSections(userMessage)),
+  });
+}
+
 async function generateForGroup(
   group: IssueGroup,
   outerKey: string,
   jiraBase: string,
   descLimit: number,
   llm: ExecutionContext["llm"],
+  toolLlm: ToolLlmConfig,
 ): Promise<GroupNarrative> {
   const userMessage = buildGroupMessage(group, outerKey, jiraBase, descLimit);
-
-  trace("inner_llm_request", {
-    tool: "generate_sprint_narrative",
-    groupKey: group.groupKey,
-    userMessage: userMessage.slice(0, 2000),
-  });
-
-  const llmStart = Date.now();
-  const response = await llm.generate([
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: userMessage },
-  ], { model: getToolModel("generate_sprint_narrative"), temperature: 0.3 });
-  const llmMs = Date.now() - llmStart;
-
-  const raw = response.content || "";
-  trace("inner_llm_call", {
-    tool: "generate_sprint_narrative",
-    groupKey: group.groupKey,
-    ms: llmMs,
-    response: raw.slice(0, 2000),
-  });
-
-  process.stderr.write(`  [narrative] ${group.groupKey} — ${llmMs}ms\n`);
-
-  const jsonStr = extractJson(raw);
-
-  try {
-    const parsed = JSON.parse(jsonStr) as GroupNarrative;
-    if (!parsed.groupKey) parsed.groupKey = group.groupKey;
-    return parsed;
-  } catch (e) {
-    process.stderr.write(`  [warn] generate_sprint_narrative: JSON parse failed for "${group.groupKey}" — ${(e as Error).message}\n`);
-    trace("inner_llm_parse_error", {
-      tool: "generate_sprint_narrative",
-      groupKey: group.groupKey,
-      error: (e as Error).message,
-      raw: raw.slice(0, 1000),
-    });
-    return { groupKey: group.groupKey };
-  }
+  return callGroupNarrativeLlm(llm, group.groupKey, userMessage, group.groupKey, toolLlm);
 }
 
 /**
@@ -496,8 +475,42 @@ export function isGroupAffectedByDiff(
 }
 
 /**
+ * When the orchestrator calls group_issues with assignee → status only, upgrade to
+ * assignee → status → epic so narratives get per-epic sub-headings and smaller LLM calls.
+ */
+export function upgradeAssigneeGrouping(
+  grouped: GroupIssuesResult,
+  issues: JiraIssue[],
+): GroupIssuesResult {
+  const keys = grouped.groupBy;
+  if (keys.length !== 2 || keys[0] !== "assignee" || keys[1] !== "status") {
+    return grouped;
+  }
+
+  process.stderr.write(
+    "  [narrative] Upgrading groupBy assignee → status to assignee → status → epic\n",
+  );
+
+  const { groups, dropped } = nestGroupIssues(issues, ["assignee", "status", "epic"]);
+  return {
+    groups,
+    groupBy: ["assignee", "status", "epic"],
+    total: grouped.total,
+    dropped,
+    summary: `Regrouped for narrative: ${groups.length} assignees (assignee → status → epic).`,
+  };
+}
+
+/**
  * Extract the JQL string from the most recent search_jira_issues result in the log.
  */
+function extractIssuesFromLog(log: { tool: string; result: unknown }[]): JiraIssue[] | null {
+  const entry = [...log].reverse().find((tc) => tc.tool === "search_jira_issues");
+  if (!entry) return null;
+  const result = entry.result as { issues?: JiraIssue[] } | null;
+  return result?.issues ?? null;
+}
+
 function extractJqlFromLog(log: { tool: string; result: unknown }[]): string | null {
   const entry = [...log].reverse().find((tc) => tc.tool === "search_jira_issues");
   if (!entry) return null;
@@ -548,7 +561,7 @@ export function splitMarkdownSections(markdown: string): string[] {
 export const generateSprintNarrativeTool: Tool = {
   name: "generate_sprint_narrative",
   description:
-    "Generate a prose sprint narrative from the last group_issues result. Expects group_issues called with ['epic', 'status'] or ['assignee', 'status']. Uses parallel LLM calls (one per group). Automatically reuses cached prose for groups with no ticket changes. Call once per run — for Notion/Slack, use contentFrom instead of calling again. Returns markdown.",
+    "Generate a prose sprint narrative from the last group_issues result. Expects group_issues called with ['epic', 'status'] or ['assignee', 'status', 'epic'] (use the 3-key form when user asks for assignee then epic). Uses parallel LLM calls (one per group, or one per assignee×epic). Automatically reuses cached prose for groups with no ticket changes. Call once per run — for Notion/Slack, use contentFrom instead of calling again. Returns markdown.",
   parameters: {
     type: "object",
     properties: {},
@@ -574,14 +587,19 @@ export const generateSprintNarrativeTool: Tool = {
       throw new Error("No group_issues result found in tool call log. Run group_issues first.");
     }
 
-    const grouped = groupEntry.result as GroupIssuesResult;
+    let grouped = groupEntry.result as GroupIssuesResult;
     if (!grouped.groups || grouped.groups.length === 0) {
       throw new Error("group_issues result has no groups.");
     }
 
+    const searchIssues = extractIssuesFromLog(log);
+    if (searchIssues) {
+      grouped = upgradeAssigneeGrouping(grouped, searchIssues);
+    }
+
     const jiraBase = ((context.config.issueLinkBase as string) || "https://your-org.atlassian.net/browse").replace(/\/+$/, "");
-    const narrativeCfg = (context.config.narrative as Record<string, unknown>) || {};
-    const descLimit = (narrativeCfg.descriptionLimit as number) || DEFAULT_DESC_LIMIT;
+    const toolLlm = getToolLlmConfig("generate_sprint_narrative");
+    const descLimit = resolveDescriptionLimit(context.config.narrative as Record<string, unknown> | undefined);
     const outerKey = grouped.groupBy[0];
     const hasThirdLevel = grouped.groupBy.length >= 3;
 
@@ -643,37 +661,14 @@ export const generateSprintNarrativeTool: Tool = {
           unitsToGenerate.map(async (unit) => {
             const userMessage = buildEpicUnitMessage(unit, jiraBase, descLimit);
             const compositeKey = `${unit.assigneeKey}::${unit.epicKey}`;
-
-            trace("inner_llm_request", {
-              tool: "generate_sprint_narrative",
-              groupKey: compositeKey,
-              userMessage: userMessage.slice(0, 2000),
-            });
-
-            const llmStart = Date.now();
-            const response = await context.llm.generate([
-              { role: "system", content: SYSTEM_PROMPT },
-              { role: "user", content: userMessage },
-            ], { model: getToolModel("generate_sprint_narrative"), temperature: 0.3 });
-            const llmMs = Date.now() - llmStart;
-
-            const raw = response.content || "";
-            trace("inner_llm_call", {
-              tool: "generate_sprint_narrative",
-              groupKey: compositeKey,
-              ms: llmMs,
-              response: raw.slice(0, 2000),
-            });
-
-            process.stderr.write(`  [narrative] ${unit.assigneeLabel} / ${unit.epicLabel} — ${llmMs}ms\n`);
-
-            try {
-              const parsed = JSON.parse(extractJson(raw)) as GroupNarrative;
-              return { key: compositeKey, narrative: parsed };
-            } catch (e) {
-              process.stderr.write(`  [warn] JSON parse failed for "${compositeKey}" — ${(e as Error).message}\n`);
-              return { key: compositeKey, narrative: { groupKey: compositeKey } as GroupNarrative };
-            }
+            const narrativeResult = await callGroupNarrativeLlm(
+              context.llm,
+              compositeKey,
+              userMessage,
+              `${unit.assigneeLabel} / ${unit.epicLabel}`,
+              toolLlm,
+            );
+            return { key: compositeKey, narrative: narrativeResult };
           }),
         );
 
@@ -761,7 +756,7 @@ export const generateSprintNarrativeTool: Tool = {
 
         parsedGroups = await Promise.all(
           groupsToGenerate.map((group) =>
-            generateForGroup(group, outerKey, jiraBase, descLimit, context.llm),
+            generateForGroup(group, outerKey, jiraBase, descLimit, context.llm, toolLlm),
           ),
         );
 

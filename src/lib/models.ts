@@ -1,1 +1,1 @@
-export { getModel, getToolModel } from "./resolve-model.js";
+export { getModel, getToolModel, getToolLlmConfig } from "./resolve-model.js";

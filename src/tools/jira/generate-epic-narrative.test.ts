@@ -179,11 +179,13 @@ function makeIssue(overrides: Partial<JiraIssue> & { key: string }): JiraIssue {
 }
 
 function mockContext(toolCallLog: ToolCallEntry[], llmResponse: string): ExecutionContext {
+  const response = { content: llmResponse, toolCalls: [], finishReason: "stop" as const };
   return {
     toolCallLog,
     config: { issueLinkBase: "https://example.atlassian.net/browse" },
     llm: {
-      generate: async () => ({ content: llmResponse }),
+      generate: async () => response,
+      generateWithTools: async () => response,
     },
     meta: { attempt: 1, workflowName: "test", stepName: "test" },
   } as unknown as ExecutionContext;

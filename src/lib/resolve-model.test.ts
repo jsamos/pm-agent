@@ -6,14 +6,19 @@ import {
   getDefaultLogicalModel,
   getModel,
   getToolModel,
+  getToolLlmConfig,
   type ModelsConfig,
 } from "./resolve-model.js";
 
 const FIXTURE: ModelsConfig = {
   default: "gpt-4o",
-  agents: { agent: "gpt-4o", roster: "gpt-4o-mini" },
+  agents: { agent: "gpt-4o", helper: "gpt-4o-mini" },
   tools: {
-    generate_sprint_narrative: "sonnet-4.6",
+    generate_sprint_narrative: {
+      model: "sonnet-4.6",
+      maxTokens: 8192,
+      temperature: 0.3,
+    },
     generate_epic_narrative: "sonnet-4.6",
   },
   routes: {
@@ -51,7 +56,7 @@ describe("resolveModel", () => {
 
 describe("getModel", () => {
   it("returns agent override when present", () => {
-    expect(getModel("roster", FIXTURE)).toBe("gpt-4o-mini");
+    expect(getModel("helper", FIXTURE)).toBe("gpt-4o-mini");
   });
 
   it("falls back to default for unknown agent", () => {
@@ -70,6 +75,32 @@ describe("getToolModel", () => {
 
   it("falls back to default for unknown tool", () => {
     expect(getToolModel("unknown_tool", FIXTURE)).toBe("gpt-4o");
+  });
+});
+
+describe("getToolLlmConfig", () => {
+  it("returns model and invoke options from object tool entry", () => {
+    expect(getToolLlmConfig("generate_sprint_narrative", FIXTURE)).toEqual({
+      model: "sonnet-4.6",
+      maxTokens: 8192,
+      temperature: 0.3,
+    });
+  });
+
+  it("applies defaults for string tool entry", () => {
+    expect(getToolLlmConfig("generate_epic_narrative", FIXTURE)).toEqual({
+      model: "sonnet-4.6",
+      maxTokens: 4096,
+      temperature: 0.3,
+    });
+  });
+
+  it("falls back to default model for unknown tool", () => {
+    expect(getToolLlmConfig("unknown_tool", FIXTURE)).toEqual({
+      model: "gpt-4o",
+      maxTokens: 4096,
+      temperature: 0.3,
+    });
   });
 });
 

@@ -7,7 +7,6 @@ import {
   assembleThreeLevelMarkdown,
   renderHeading,
   getSubGroupIssues,
-  extractJson,
   linkifyIssueKeys,
   buildGroupMessage,
   buildChangedKeySet,
@@ -15,6 +14,7 @@ import {
   isGroupAffectedByDiff,
   splitMarkdownSections,
   flattenToEpicUnits,
+  upgradeAssigneeGrouping,
   generateSprintNarrativeTool,
   findPriorNarrativeInLog,
   type GroupNarrative,
@@ -24,8 +24,40 @@ import {
 import { saveNarrativeCache, computeThread } from "./narrative-cache.js";
 import type { IssueGroup, GroupIssuesResult } from "./group-issues.js";
 import type { JiraIssue } from "./search-issues.js";
+import { SUBMIT_GROUP_NARRATIVE_TOOL } from "../../lib/narrative-llm.js";
 
 const JIRA_BASE = "https://example.atlassian.net/browse";
+
+function mockNarrativeLlm(
+  handler: () => { content?: string | null; toolCalls?: Array<{ arguments: Record<string, unknown> }> },
+) {
+  return {
+    generate: vi.fn(),
+    generateWithTools: vi.fn(async () => {
+      const result = handler();
+      if (result.toolCalls) {
+        return {
+          content: result.content ?? null,
+          toolCalls: result.toolCalls.map((tc, idx) => ({
+            id: `tool-${idx + 1}`,
+            name: SUBMIT_GROUP_NARRATIVE_TOOL.name,
+            arguments: tc.arguments,
+          })),
+          finishReason: "tool_calls" as const,
+        };
+      }
+      return {
+        content: result.content ?? null,
+        toolCalls: [],
+        finishReason: "stop" as const,
+      };
+    }),
+  };
+}
+
+function narrativeToolResponse(args: Record<string, unknown>) {
+  return { toolCalls: [{ arguments: args }] };
+}
 
 function makeIssue(key: string, overrides: Partial<JiraIssue> = {}): JiraIssue {
   return {
@@ -53,24 +85,6 @@ function makeEpicGroup(key: string, label: string, statuses: { done?: JiraIssue[
   if (statuses.notStarted?.length) subGroups.push({ groupKey: "not_started", groupLabel: "Not Started", issues: statuses.notStarted });
   return { groupKey: key, groupLabel: label, issues: allIssues, subGroups };
 }
-
-// --- extractJson ---
-
-describe("extractJson", () => {
-  it("extracts JSON from a fenced code block", () => {
-    const raw = '```json\n{"groups": []}\n```';
-    expect(extractJson(raw)).toBe('{"groups": []}');
-  });
-
-  it("extracts JSON from bare text with preamble", () => {
-    const raw = 'Here is the result:\n{"groups": []}';
-    expect(extractJson(raw)).toBe('{"groups": []}');
-  });
-
-  it("returns trimmed text when already valid JSON", () => {
-    expect(extractJson('  {"a": 1}  ')).toBe('{"a": 1}');
-  });
-});
 
 // --- renderHeading ---
 
@@ -695,19 +709,15 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
           },
         ],
         config: { issueLinkBase: JIRA_BASE },
-        llm: {
-          generate: vi.fn(async () => {
-            callCount.n++;
-            const groupIdx = callCount.n - 1;
-            const key = groups[groupIdx]?.groupKey ?? "unknown";
-            return {
-              content: JSON.stringify({
-                groupKey: key,
-                delivered: [`Prose for ${key}.`],
-              }),
-            };
-          }),
-        },
+        llm: mockNarrativeLlm(() => {
+          callCount.n++;
+          const groupIdx = callCount.n - 1;
+          const key = groups[groupIdx]?.groupKey ?? "unknown";
+          return narrativeToolResponse({
+            groupKey: key,
+            delivered: [`Prose for ${key}.`],
+          });
+        }),
       },
       callCount,
     };
@@ -723,7 +733,7 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
     const { context } = makeContext(groups);
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
 
-    expect(context.llm.generate).toHaveBeenCalledTimes(3);
+    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(3);
     expect((result as any).narrative).toContain("Prose for PROJ-1.");
     expect((result as any).narrative).toContain("Prose for PROJ-2.");
     expect((result as any).narrative).toContain("Prose for PROJ-3.");
@@ -745,19 +755,53 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
         },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: {
-        generate: vi.fn(async () => {
-          callN++;
-          if (callN === 1) return { content: "not valid json at all" };
-          return { content: JSON.stringify({ groupKey: "PROJ-2", delivered: ["Beta works."] }) };
-        }),
-      },
+      llm: mockNarrativeLlm(() => {
+        callN++;
+        if (callN === 1) return { content: "not valid json at all" };
+        return narrativeToolResponse({ groupKey: "PROJ-2", delivered: ["Beta works."] });
+      }),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
-    expect(context.llm.generate).toHaveBeenCalledTimes(2);
+    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(3);
     expect((result as any).narrative).toContain("Beta works.");
     expect((result as any).narrative).toContain("_No narrative generated._");
+  });
+
+  it("preserves quoted UI copy from tool response in markdown", async () => {
+    const groups = [
+      {
+        groupKey: "Alice Martin",
+        groupLabel: "Alice Martin",
+        issues: [makeIssue("X-1", { assignee: "Alice Martin", status: "Open", statusCategory: "To Do" })],
+        subGroups: [{
+          groupKey: "not_started",
+          groupLabel: "Not Started",
+          issues: [makeIssue("X-1", { assignee: "Alice Martin", status: "Open", statusCategory: "To Do" })],
+        }],
+      },
+    ];
+
+    const context = {
+      toolCallLog: [{
+        tool: "group_issues",
+        args: {},
+        result: { groups, groupBy: ["assignee", "status"], dropped: 0, summary: "test" } as GroupIssuesResult,
+      }],
+      config: { issueLinkBase: JIRA_BASE },
+      llm: mockNarrativeLlm(() =>
+        narrativeToolResponse({
+          groupKey: "Alice Martin",
+          notStarted: [
+            'PreCheck will show "No insurance information on file" instead of a misleading field error.',
+          ],
+        }),
+      ),
+    };
+
+    const result = await generateSprintNarrativeTool.execute!({}, context as any);
+    expect((result as any).narrative).toContain('"No insurance information on file"');
+    expect((result as any).narrative).not.toContain("_No narrative generated._");
   });
 
   it("works with assignee grouping", async () => {
@@ -780,21 +824,39 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
         },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: {
-        generate: vi.fn(async () => {
-          callN++;
-          return { content: JSON.stringify({ groupKey: "Alice Martin", delivered: ["Alice delivered."] }) };
-        }),
-      },
+      llm: mockNarrativeLlm(() =>
+        narrativeToolResponse({ groupKey: "Alice Martin", delivered: ["Alice delivered."] }),
+      ),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
-    expect(context.llm.generate).toHaveBeenCalledTimes(1);
+    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(1);
     expect((result as any).narrative).toContain("Alice delivered.");
   });
 });
 
 // --- flattenToEpicUnits ---
+
+describe("upgradeAssigneeGrouping", () => {
+  it("upgrades assignee → status to assignee → status → epic", () => {
+    const issues = [
+      makeIssue("A-1", { assignee: "Alice", parent: { key: "EPIC-1", summary: "Epic One", issueType: "Epic" } }),
+      makeIssue("A-2", { assignee: "Alice", statusCategory: "In Progress", status: "In Progress", parent: { key: "EPIC-2", summary: "Epic Two", issueType: "Epic" } }),
+    ];
+    const grouped = makeGrouped([
+      makeEpicGroup("Alice", "Alice", { done: [issues[0]], inProgress: [issues[1]] }),
+    ], ["assignee", "status"]);
+
+    const upgraded = upgradeAssigneeGrouping(grouped, issues);
+    expect(upgraded.groupBy).toEqual(["assignee", "status", "epic"]);
+    expect(upgraded.groups[0].subGroups?.[0].subGroups?.length).toBeGreaterThan(0);
+  });
+
+  it("leaves epic grouping unchanged", () => {
+    const grouped = makeGrouped([], ["epic", "status"]);
+    expect(upgradeAssigneeGrouping(grouped, [])).toBe(grouped);
+  });
+});
 
 describe("flattenToEpicUnits", () => {
   function make3LevelGrouped(): GroupIssuesResult {
@@ -1118,18 +1180,16 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
         },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: {
-        generate: vi.fn(async () => ({
-          content: JSON.stringify({ groupKey: "PROJ-2", delivered: ["Fresh Beta prose."] }),
-        })),
-      },
+      llm: mockNarrativeLlm(() =>
+        narrativeToolResponse({ groupKey: "PROJ-2", delivered: ["Fresh Beta prose."] }),
+      ),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
     const narrative = (result as any).narrative as string;
 
     // Only 1 LLM call — for PROJ-2 (which has the new X-3 ticket)
-    expect(context.llm.generate).toHaveBeenCalledTimes(1);
+    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(1);
 
     // PROJ-1 uses cached prose
     expect(narrative).toContain("Cached Alpha prose.");
@@ -1194,22 +1254,18 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
         },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: {
-        generate: vi.fn(async () => {
-          callN++;
-          return {
-            content: JSON.stringify({
-              groupKey: callN === 1 ? "PROJ-2" : "PROJ-4",
-              delivered: [`Fresh group ${callN}.`],
-            }),
-          };
-        }),
-      },
+      llm: mockNarrativeLlm(() => {
+        callN++;
+        return narrativeToolResponse({
+          groupKey: callN === 1 ? "PROJ-2" : "PROJ-4",
+          delivered: [`Fresh group ${callN}.`],
+        });
+      }),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
 
-    expect(context.llm.generate).toHaveBeenCalledTimes(2);
+    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(2);
     expect((result as any).summary).toContain("2 LLM calls");
     expect((result as any).summary).toContain("3 reused from cache");
   });
@@ -1235,16 +1291,14 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
         },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: {
-        generate: vi.fn(async () => {
-          callN++;
-          return { content: JSON.stringify({ groupKey: "PROJ-1", delivered: ["Fresh Alpha."] }) };
-        }),
-      },
+      llm: mockNarrativeLlm(() => {
+        callN++;
+        return narrativeToolResponse({ groupKey: "PROJ-1", delivered: ["Fresh Alpha."] });
+      }),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
-    expect(context.llm.generate).toHaveBeenCalledTimes(1);
+    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(1);
     expect((result as any).narrative).toContain("Fresh Alpha.");
   });
 
@@ -1279,16 +1333,14 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
         { tool: "group_issues", args: {}, result: { groups, groupBy: ["assignee", "status"], dropped: 0, summary: "test" } as GroupIssuesResult },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: {
-        generate: vi.fn(async () => ({
-          content: JSON.stringify({ groupKey: "Alice", delivered: ["Alice fresh."] }),
-        })),
-      },
+      llm: mockNarrativeLlm(() =>
+        narrativeToolResponse({ groupKey: "Alice", delivered: ["Alice fresh."] }),
+      ),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
     // Cache didn't match (different groupBy) → full regeneration
-    expect(context.llm.generate).toHaveBeenCalledTimes(1);
+    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(1);
     expect((result as any).narrative).toContain("Alice fresh.");
   });
 
@@ -1349,18 +1401,16 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
         },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: {
-        generate: vi.fn(async () => ({
-          content: JSON.stringify({ groupKey: "PROJ-NEW", delivered: ["Fresh new epic prose."] }),
-        })),
-      },
+      llm: mockNarrativeLlm(() =>
+        narrativeToolResponse({ groupKey: "PROJ-NEW", delivered: ["Fresh new epic prose."] }),
+      ),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
     const narrative = (result as any).narrative as string;
 
     // PROJ-1 unchanged; PROJ-NEW is new; _no_epic_ is gone (no LLM call for it)
-    expect(context.llm.generate).toHaveBeenCalledTimes(1);
+    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(1);
     expect(narrative).toContain("Cached Alpha.");
     expect(narrative).toContain("Fresh new epic prose.");
     expect(narrative).not.toContain("Standalone prose.");
@@ -1398,17 +1448,15 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
         { tool: "group_issues", args: {}, result: { groups, groupBy: ["epic", "status"], dropped: 0, summary: "test" } as GroupIssuesResult },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: {
-        generate: vi.fn(async (_msgs: unknown) => ({
-          content: JSON.stringify({ groupKey: "PROJ-1", delivered: ["Fresh prose."] }),
-        })),
-      },
+      llm: mockNarrativeLlm(() =>
+        narrativeToolResponse({ groupKey: "PROJ-1", delivered: ["Fresh prose."] }),
+      ),
     };
 
     await generateSprintNarrativeTool.execute!({}, context as any);
 
     // Both groups regenerated — cache ignored because no diff = changedKeys is null = canReuse is false
-    expect(context.llm.generate).toHaveBeenCalledTimes(2);
+    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -1485,11 +1533,11 @@ describe("generateSprintNarrativeTool.execute (idempotent)", () => {
         },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: { generate: vi.fn() },
+      llm: mockNarrativeLlm(() => narrativeToolResponse({ groupKey: "unused" })),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
-    expect(context.llm.generate).not.toHaveBeenCalled();
+    expect(context.llm.generateWithTools).not.toHaveBeenCalled();
     expect((result as any).narrative).toBe(priorResult.narrative);
     expect((result as any).summary).toContain("reused");
   });
@@ -1559,11 +1607,11 @@ describe("generateSprintNarrativeTool.execute (removed group)", () => {
         },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: { generate: vi.fn() },
+      llm: mockNarrativeLlm(() => narrativeToolResponse({ groupKey: "unused" })),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
-    expect(context.llm.generate).not.toHaveBeenCalled();
+    expect(context.llm.generateWithTools).not.toHaveBeenCalled();
     expect((result as any).narrative).toContain("Alpha cached prose.");
     expect((result as any).narrative).not.toContain("Removed Epic");
     expect((result as any).narrative).not.toContain("Old cached prose.");

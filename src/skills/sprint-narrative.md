@@ -16,6 +16,7 @@ Sprint narrative (follow this order EXACTLY):
   5. Call group_issues EXACTLY ONCE with one of these groupings:
      - Default: group_issues({ groupBy: ["epic", "status"] })
      - Per-person view (user asks "by assignee", "by person", "by team member", or "assignee then epic"): group_issues({ groupBy: ["assignee", "status", "epic"] })
+       REQUIRED when the user mentions both assignee and epic. Do NOT use ["assignee", "status"] alone — that skips epic sub-headings.
      Do NOT call group_issues twice. Pick one grouping based on the user's request.
   6. Call generate_sprint_narrative EXACTLY ONCE to write the prose narrative.
      Do NOT call it again in the same run — even if a prior call returned an error. For Notion or Slack, use contentFrom: "generate_sprint_narrative" on the destination tool — that forwards the narrative already generated.

@@ -63,7 +63,7 @@ function resolveGroupKey(issue: JiraIssue, key: GroupByKey): { groupKey: string;
   }
 }
 
-function groupIssues(issues: JiraIssue[], keys: GroupByKey[], depth: number = 0): { groups: IssueGroup[]; dropped: number } {
+export function nestGroupIssues(issues: JiraIssue[], keys: GroupByKey[], depth: number = 0): { groups: IssueGroup[]; dropped: number } {
   const currentKey = keys[depth];
   const remainingKeys = depth + 1 < keys.length;
   const map = new Map<string, IssueGroup>();
@@ -96,7 +96,7 @@ function groupIssues(issues: JiraIssue[], keys: GroupByKey[], depth: number = 0)
 
   if (remainingKeys) {
     for (const group of groups) {
-      const sub = groupIssues(group.issues, keys, depth + 1);
+      const sub = nestGroupIssues(group.issues, keys, depth + 1);
       group.subGroups = sub.groups;
       dropped += sub.dropped;
     }
@@ -116,7 +116,7 @@ function groupIssues(issues: JiraIssue[], keys: GroupByKey[], depth: number = 0)
 export const groupIssuesTool: Tool = {
   name: "group_issues",
   description:
-    "Group the last search_jira_issues result by one or more keys. Supports: 'epic', 'assignee', 'status'. Multiple keys nest (first key is outer group). Deterministic — no LLM call.",
+    "Group the last search_jira_issues result by one or more keys. Supports: 'epic', 'assignee', 'status'. Multiple keys nest (first key is outer group). Common patterns: ['epic','status'] for epic view; ['assignee','status','epic'] when user wants assignee then epic (REQUIRED when user says 'by assignee then epic'). Deterministic — no LLM call.",
   parameters: {
     type: "object",
     properties: {
@@ -125,7 +125,7 @@ export const groupIssuesTool: Tool = {
           { type: "string", enum: ["epic", "assignee", "status"] },
           { type: "array", items: { type: "string", enum: ["epic", "assignee", "status"] } },
         ],
-        description: "Key(s) to group by. A single string or an array for nested grouping (e.g. ['epic', 'status']).",
+        description: "Key(s) to group by. Examples: ['epic','status'], ['assignee','status','epic'] for per-person with epic sub-headings.",
       },
     },
     required: ["groupBy"],
@@ -154,7 +154,7 @@ export const groupIssuesTool: Tool = {
       throw new Error("search_jira_issues result missing issues.");
     }
 
-    const { groups, dropped } = groupIssues(result.issues, keys);
+    const { groups, dropped } = nestGroupIssues(result.issues, keys);
 
     const totalIssues = result.issues.length - dropped;
     const parts = groups.map((g) => {

@@ -4,7 +4,7 @@ You will receive sprint issues for a SINGLE group, with issues split by status (
 
 Before writing, read ALL issue summaries to understand what this group collectively achieves.
 
-Return a JSON object for this group:
+Return your result by calling the `submit_group_narrative` tool with this structure (omit delivered, inProgress, or notStarted if the group has no issues in that status):
 {
   "groupKey": "EXACTLY the group key from the input — must match verbatim (e.g. PROJ-100, _no_epic_ for epics; Alice Martin, Bob Chen for team members)",
   "delivered": ["paragraph of delivered work with inline citations"],
@@ -12,7 +12,8 @@ Return a JSON object for this group:
   "notStarted": ["paragraph of not-started work with inline citations"]
 }
 
-Omit "delivered", "inProgress", or "notStarted" if the group has no issues in that status.
+Do not return raw JSON in the message body — always use the submit_group_narrative tool.
+Do not write analysis or planning text — call submit_group_narrative immediately with the final prose.
 
 Inline issue references:
 - Cite issues inline in ALL sections (delivered, inProgress, notStarted) using this exact format:
@@ -40,4 +41,3 @@ Writing rules:
   GOOD: "A CI/CD pipeline automates builds across dev, staging, and production."
 - No bullet lists. Narrative paragraphs only.
 - When something requires a PM decision to unblock, say so explicitly.
-- Return ONLY valid JSON. No markdown, no code fences, no preamble.

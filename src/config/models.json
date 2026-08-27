@@ -1,13 +1,19 @@
 {
   "default": "gpt-4o",
   "agents": {
-    "agent": "gpt-4o",
-    "roster": "gpt-4o-mini",
-    "sprint-rollup": "gpt-4o-mini"
+    "agent": "gpt-4o"
   },
   "tools": {
-    "generate_epic_narrative": "sonnet-4.6",
-    "generate_sprint_narrative": "sonnet-4.6"
+    "generate_epic_narrative": {
+      "model": "sonnet-4.6",
+      "maxTokens": 8192,
+      "temperature": 0.3
+    },
+    "generate_sprint_narrative": {
+      "model": "sonnet-4.6",
+      "maxTokens": 8192,
+      "temperature": 0.3
+    }
   },
   "routes": {
     "gpt-4o": { "provider": "openai", "modelId": "gpt-4o" },

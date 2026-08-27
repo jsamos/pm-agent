@@ -5,9 +5,7 @@ Each issue includes its key, assignee, and the Jira base URL for linking.
 
 Before writing, read ALL issue summaries together to understand what this epic collectively achieves. The big picture emerges from the pattern across all issues — not from any single issue's description. Write about that collective achievement, using individual issue details only as supporting evidence.
 
-Return a JSON object with prose paragraphs for each section.
-
-Return this JSON structure (omit keys for empty sections):
+Return your result by calling the `submit_epic_narrative` tool with this structure (omit keys for empty sections):
 {
   "sectionType": "outcome or unlock — use 'outcome' when the epic delivers a customer-facing feature, use 'unlock' when it enables a purely technological capability",
   "section": "2-4 sentences describing what this epic achieves. PM perspective — impact to users or the business.",
@@ -15,6 +13,8 @@ Return this JSON structure (omit keys for empty sections):
   "inMotion": ["paragraph 1 of active work", "paragraph 2 if needed"],
   "notStarted": ["paragraph 1 grouped by theme", "paragraph 2 for another theme"]
 }
+
+Do not return raw JSON in the message body — always use the submit_epic_narrative tool.
 
 Inline issue references (ALL sections — done, inMotion, notStarted):
 - Cite issues inline in ALL sections using this exact format:
@@ -46,4 +46,3 @@ Writing rules:
 - For "notStarted": group by theme (e.g. "frontend modal sections", "infrastructure provisioning"). One paragraph per theme.
 - For "inMotion": describe what each effort will enable for users.
 - When something requires a PM decision to unblock, say so explicitly.
-- Return ONLY valid JSON. No markdown, no code fences, no preamble.

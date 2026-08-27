@@ -14,14 +14,17 @@ import type { Tool } from "../registry.js";
 import type { ExecutionContext } from "../../lib/context.js";
 import type { GroupIssuesResult, IssueGroup } from "./group-issues.js";
 import type { JiraIssue } from "./search-issues.js";
-import { getToolModel } from "../../lib/models.js";
+import { getToolLlmConfig } from "../../lib/models.js";
+import { resolveDescriptionLimit } from "../../lib/narrative-config.js";
+import {
+  callStructuredNarrativeLlm,
+  parseEpicNarrativeResponse,
+  SUBMIT_EPIC_NARRATIVE_TOOL,
+} from "../../lib/narrative-llm.js";
 import { extractDiffFromLog, formatDiffBlock } from "./format-diff.js";
-import { trace } from "../../lib/agent-loop.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT = readFileSync(resolve(__dirname, "../../prompts/epic-narrative.md"), "utf-8").trim();
-
-const DEFAULT_DESC_LIMIT = 1000;
 
 interface ClassifiedIssue {
   key: string;
@@ -79,18 +82,6 @@ export function assembleEpicMarkdown(
   return md.join("\n\n---\n\n");
 }
 
-function extractJson(raw: string): string {
-  let text = raw.trim();
-  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (fenceMatch) text = fenceMatch[1].trim();
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {
-    text = text.slice(firstBrace, lastBrace + 1);
-  }
-  return text;
-}
-
 export const generateEpicNarrativeTool: Tool = {
   name: "generate_epic_narrative",
   description:
@@ -132,8 +123,8 @@ export const generateEpicNarrativeTool: Tool = {
     const notStarted = getIssuesByStatus("not_started");
 
     const jiraBase = ((context.config.issueLinkBase as string) || "https://your-org.atlassian.net/browse").replace(/\/+$/, "");
-    const narrativeCfg = (context.config.narrative as Record<string, unknown>) || {};
-    const descLimit = (narrativeCfg.descriptionLimit as number) || DEFAULT_DESC_LIMIT;
+    const toolLlm = getToolLlmConfig("generate_epic_narrative");
+    const descLimit = resolveDescriptionLimit(context.config.narrative as Record<string, unknown> | undefined);
 
     const formatIssueData = (i: JiraIssue) => {
       const desc = i.description ? i.description.slice(0, descLimit) : "(no description)";
@@ -154,35 +145,27 @@ export const generateEpicNarrativeTool: Tool = {
 
     const userMessage = dataSections.join("\n\n");
 
-    const llmStart = Date.now();
-    const response = await context.llm.generate([
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
-    ], { model: getToolModel("generate_epic_narrative"), temperature: 0.3 });
-    const llmMs = Date.now() - llmStart;
-
-    const raw = response.content || "";
-    trace("inner_llm_call", {
-      tool: "generate_epic_narrative",
-      ms: llmMs,
-      response: raw.slice(0, 2000),
-    });
-
-    const jsonStr = extractJson(raw);
-
-    let parsed: EpicNarrativeParsed;
-    try {
-      parsed = JSON.parse(jsonStr);
-    } catch (e) {
-      process.stderr.write(`  [warn] generate_epic_narrative: JSON parse failed — ${(e as Error).message}\n`);
-      trace("inner_llm_parse_error", { tool: "generate_epic_narrative", error: (e as Error).message, raw: raw.slice(0, 1000) });
-      return { narrative: raw };
-    }
-
     const searchEntry = [...log].reverse().find((tc) => tc.tool === "search_jira_issues");
     const searchResult = searchEntry?.result as { issues?: JiraIssue[] } | undefined;
     const allIssues = searchResult?.issues || [];
     const epicIssue = allIssues.find((i) => i.issueType === "Epic");
+
+    const parsed = await callStructuredNarrativeLlm({
+      llm: context.llm,
+      tracingTool: "generate_epic_narrative",
+      systemPrompt: SYSTEM_PROMPT,
+      userMessage,
+      tools: [SUBMIT_EPIC_NARRATIVE_TOOL],
+      model: toolLlm.model,
+      traceLabel: epicIssue?.key || "epic",
+      maxTokens: toolLlm.maxTokens,
+      temperature: toolLlm.temperature,
+      parseResponse: parseEpicNarrativeResponse,
+    });
+
+    if (!parsed.section && !parsed.done?.length && !parsed.inMotion?.length && !parsed.notStarted?.length) {
+      return { narrative: "", summary: "Narrative generation failed — no structured output." };
+    }
 
     const buildEntry = [...log].reverse().find((tc) => tc.tool === "build_epic_jql");
     const buildResult = buildEntry?.result as { assigneeFiltered?: boolean } | undefined;
