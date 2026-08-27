@@ -66,6 +66,20 @@ export function getDefaultLogicalModel(cfg: ModelsConfig = config): string {
   return cfg.default;
 }
 
+export function getModel(agentName?: string, cfg: ModelsConfig = config): string {
+  if (agentName && cfg.agents[agentName]) {
+    return cfg.agents[agentName];
+  }
+  return cfg.default;
+}
+
+export function getToolModel(toolName: string, cfg: ModelsConfig = config): string {
+  if (cfg.tools?.[toolName]) {
+    return cfg.tools[toolName];
+  }
+  return cfg.default;
+}
+
 let validated = false;
 
 export function ensureModelConfigValid(): void {

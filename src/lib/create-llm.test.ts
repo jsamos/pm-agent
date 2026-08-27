@@ -3,6 +3,7 @@ import { createLLM } from "./create-llm.js";
 import { createHarnessContext } from "./context.js";
 import * as rateLimitedLlm from "./rate-limited-llm.js";
 import * as createLlmModule from "./create-llm.js";
+import * as models from "./models.js";
 import * as routingLlm from "./routing-llm.js";
 
 describe("createLLM", () => {
@@ -103,14 +104,14 @@ describe("createHarnessContext", () => {
     expect(context.llm).toBe(mockLlm);
   });
 
-  it("passes agentName to createLLM as model from models.json", () => {
+  it("passes agent model to createLLM when agentName is set", () => {
+    vi.spyOn(models, "getModel").mockReturnValue("agent-model");
     const createSpy = vi.spyOn(createLlmModule, "createLLM").mockReturnValue(mockLlm);
 
     createHarnessContext({ agentName: "agent", config: {} });
 
-    expect(createSpy).toHaveBeenCalledWith({
-      model: "gpt-4o",
-    });
+    expect(models.getModel).toHaveBeenCalledWith("agent");
+    expect(createSpy).toHaveBeenCalledWith({ model: "agent-model" });
   });
 
   it("passes explicit model to createLLM", () => {

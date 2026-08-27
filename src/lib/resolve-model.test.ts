@@ -3,15 +3,22 @@ import {
   resolveModel,
   validateModelConfig,
   loadModelsConfig,
+  getDefaultLogicalModel,
+  getModel,
+  getToolModel,
   type ModelsConfig,
 } from "./resolve-model.js";
 
 const FIXTURE: ModelsConfig = {
   default: "gpt-4o",
-  agents: { agent: "gpt-4o" },
-  tools: { generate_sprint_narrative: "sonnet-4.6" },
+  agents: { agent: "gpt-4o", roster: "gpt-4o-mini" },
+  tools: {
+    generate_sprint_narrative: "sonnet-4.6",
+    generate_epic_narrative: "sonnet-4.6",
+  },
   routes: {
     "gpt-4o": { provider: "openai", modelId: "gpt-4o" },
+    "gpt-4o-mini": { provider: "openai", modelId: "gpt-4o-mini" },
     "sonnet-4.6": { provider: "bedrock", modelId: "sonnet-4.6" },
   },
 };
@@ -39,6 +46,43 @@ describe("resolveModel", () => {
     expect(() => resolveModel("unknown-model", FIXTURE)).toThrow(
       'Unknown logical model "unknown-model"',
     );
+  });
+});
+
+describe("getModel", () => {
+  it("returns agent override when present", () => {
+    expect(getModel("roster", FIXTURE)).toBe("gpt-4o-mini");
+  });
+
+  it("falls back to default for unknown agent", () => {
+    expect(getModel("unknown", FIXTURE)).toBe("gpt-4o");
+  });
+
+  it("falls back to default when agentName is omitted", () => {
+    expect(getModel(undefined, FIXTURE)).toBe("gpt-4o");
+  });
+});
+
+describe("getToolModel", () => {
+  it("returns tool override when present", () => {
+    expect(getToolModel("generate_sprint_narrative", FIXTURE)).toBe("sonnet-4.6");
+  });
+
+  it("falls back to default for unknown tool", () => {
+    expect(getToolModel("unknown_tool", FIXTURE)).toBe("gpt-4o");
+  });
+});
+
+describe("bedrock:ask model selection", () => {
+  it("detects OpenAI-routed default", () => {
+    const defaultModel = getDefaultLogicalModel(FIXTURE);
+    expect(resolveModel(defaultModel, FIXTURE).provider).toBe("openai");
+  });
+
+  it("detects Bedrock-routed default", () => {
+    const bedrockDefault: ModelsConfig = { ...FIXTURE, default: "sonnet-4.6" };
+    const defaultModel = getDefaultLogicalModel(bedrockDefault);
+    expect(resolveModel(defaultModel, bedrockDefault).provider).toBe("bedrock");
   });
 });
 
