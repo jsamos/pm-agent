@@ -59,7 +59,7 @@ describe("resolveBedrockModelId", () => {
   it("throws for unknown model keys", () => {
     expect(() =>
       resolveBedrockModelId({ config: FIXTURE, modelKey: "gpt-4" }),
-    ).toThrow('Unknown BEDROCK_MODEL "gpt-4"');
+    ).toThrow('Unknown Bedrock model key "gpt-4"');
   });
 });
 

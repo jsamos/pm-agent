@@ -30,6 +30,22 @@ export function loadBedrockConfig(): BedrockConfig {
   return JSON.parse(raw) as BedrockConfig;
 }
 
+export function resolveBedrockInferenceArn(options: {
+  config: BedrockConfig;
+  modelKey: string;
+}): string {
+  const key = options.modelKey.trim();
+  const entry = options.config.models[key];
+  if (!entry) {
+    const available = Object.keys(options.config.models).sort().join(", ");
+    throw new Error(
+      `Unknown Bedrock model key "${key}". Available in bedrock.json: ${available}. ` +
+        "Copy src/config/bedrock.example.json to src/config/bedrock.json.",
+    );
+  }
+  return entry.inferenceProfileArn;
+}
+
 export function resolveBedrockModelId(options: {
   config: BedrockConfig;
   modelKey?: string;
@@ -45,13 +61,13 @@ export function resolveBedrockModelId(options: {
 
   const key = options.modelKey?.trim() || options.config.default;
   if (!key) {
-    throw new Error("No Bedrock model selected. Set BEDROCK_MODEL in .env or BEDROCK_MODEL_ID.");
+    throw new Error("No Bedrock model selected. Set LLM_MODEL in .env or models.json default.");
   }
 
   const entry = options.config.models[key];
   if (!entry) {
     const available = Object.keys(options.config.models).sort().join(", ");
-    throw new Error(`Unknown BEDROCK_MODEL "${key}". Available: ${available}`);
+    throw new Error(`Unknown Bedrock model key "${key}". Available in bedrock.json: ${available}`);
   }
 
   return {
@@ -95,7 +111,7 @@ export function formatBedrockModelList(config: BedrockConfig): string {
   lines.push("Usage:");
   lines.push("  Copy bedrock.example.json → bedrock.json and set ARNs for your AWS account.");
   lines.push("  ARNs from SSM must match the account in AWS_PROFILE.");
-  lines.push("  BEDROCK_MODEL=sonnet-4.6 npm run bedrock:ask -- 'your prompt'");
+  lines.push("  LLM_MODEL=sonnet-4.6 npm run bedrock:ask -- 'your prompt'");
   lines.push("  npm run bedrock:models");
 
   return lines.join("\n");

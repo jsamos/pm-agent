@@ -3,6 +3,7 @@ import { createLLM } from "./create-llm.js";
 import { createHarnessContext } from "./context.js";
 import * as rateLimitedLlm from "./rate-limited-llm.js";
 import * as createLlmModule from "./create-llm.js";
+import * as routingLlm from "./routing-llm.js";
 
 describe("createLLM", () => {
   afterEach(() => {
@@ -10,36 +11,64 @@ describe("createLLM", () => {
     vi.restoreAllMocks();
   });
 
-  it("creates an LLM without rate limiting when OPENAI_TPM_LIMIT is unset", () => {
-    delete process.env.OPENAI_TPM_LIMIT;
+  it("returns a routing LLM backed by registered providers", () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test");
-    const wrapSpy = vi.spyOn(rateLimitedLlm, "createRateLimitedLLM");
+    const routingSpy = vi.spyOn(routingLlm, "createRoutingLLM");
 
-    const llm = createLLM();
-    expect(typeof llm.generate).toBe("function");
-    expect(wrapSpy).not.toHaveBeenCalled();
+    createLLM();
+    expect(routingSpy).toHaveBeenCalledOnce();
+    expect(routingSpy.mock.calls[0][0].backends).toHaveProperty("openai");
+    expect(routingSpy.mock.calls[0][0].backends).toHaveProperty("bedrock");
   });
 
-  it("wraps with rate limiter when OPENAI_TPM_LIMIT is set", () => {
+  it("wraps OpenAI with rate limiting when OPENAI_TPM_LIMIT is set", () => {
     vi.stubEnv("OPENAI_TPM_LIMIT", "30000");
     vi.stubEnv("OPENAI_API_KEY", "sk-test");
     const wrapSpy = vi.spyOn(rateLimitedLlm, "createRateLimitedLLM");
+    const routingSpy = vi.spyOn(routingLlm, "createRoutingLLM");
 
-    const llm = createLLM();
+    createLLM();
+
+    const backends = routingSpy.mock.calls[0][0].backends;
+    backends.openai();
     expect(wrapSpy).toHaveBeenCalledOnce();
-    expect(typeof llm.generate).toBe("function");
   });
 
-  it("throws for an unknown provider", () => {
+  it("does not wrap Bedrock with OpenAI TPM rate limiting", async () => {
+    vi.stubEnv("OPENAI_TPM_LIMIT", "30000");
     vi.stubEnv("OPENAI_API_KEY", "sk-test");
-    expect(() => createLLM({ provider: "unknown" })).toThrow('Unknown LLM provider "unknown"');
-  });
+    vi.stubEnv("AWS_PROFILE", "example-profile");
 
-  it("respects LLM_PROVIDER env", () => {
-    vi.stubEnv("LLM_PROVIDER", "openai");
-    vi.stubEnv("OPENAI_API_KEY", "sk-test");
-    const llm = createLLM();
-    expect(typeof llm.generate).toBe("function");
+    const openaiGenerate = vi.fn(async () => ({
+      content: "openai",
+      toolCalls: [],
+      finishReason: "stop" as const,
+      usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+    }));
+    const bedrockGenerate = vi.fn(async () => ({
+      content: "bedrock",
+      toolCalls: [],
+      finishReason: "stop" as const,
+    }));
+
+    const wrapSpy = vi.spyOn(rateLimitedLlm, "createRateLimitedLLM");
+    wrapSpy.mockImplementation((inner) => inner);
+
+    const llm = routingLlm.createRoutingLLM({
+      defaultLogicalModel: "gpt-4o",
+      resolve: (logical) => {
+        if (logical === "gpt-4o") return { logicalName: logical, provider: "openai", modelId: "gpt-4o" };
+        return { logicalName: logical, provider: "bedrock", modelId: "sonnet-4.6" };
+      },
+      backends: {
+        openai: () => ({ generate: openaiGenerate, generateWithTools: vi.fn() }),
+        bedrock: () => ({ generate: bedrockGenerate, generateWithTools: vi.fn() }),
+      },
+    });
+
+    await llm.generate([], { model: "sonnet-4.6" });
+    expect(bedrockGenerate).toHaveBeenCalledOnce();
+    expect(openaiGenerate).not.toHaveBeenCalled();
   });
 });
 
@@ -80,23 +109,20 @@ describe("createHarnessContext", () => {
     createHarnessContext({ agentName: "agent", config: {} });
 
     expect(createSpy).toHaveBeenCalledWith({
-      provider: undefined,
       model: "gpt-4o",
     });
   });
 
-  it("passes explicit model and provider to createLLM", () => {
+  it("passes explicit model to createLLM", () => {
     const createSpy = vi.spyOn(createLlmModule, "createLLM").mockReturnValue(mockLlm);
 
     createHarnessContext({
       agentName: "agent",
       model: "gpt-4o-mini",
-      provider: "openai",
       config: {},
     });
 
     expect(createSpy).toHaveBeenCalledWith({
-      provider: "openai",
       model: "gpt-4o-mini",
     });
   });

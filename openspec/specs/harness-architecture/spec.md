@@ -68,9 +68,9 @@ Tools that need external services connect on first call. The connection is manag
                        ▼
 ┌─────────────────────────────────────────────┐
 │  createHarnessContext / createLLM           │
-│  - select provider (OpenAI today)           │
+│  - resolve logical model → provider         │
 │  - apply harness LLM policy (e.g. TPM)      │
-│  - inject one shared llm into context       │
+│  - routing LLM → per-call backend           │
 └──────────────────────┬──────────────────────┘
                        │
                        ▼
@@ -136,9 +136,11 @@ Providers MUST NOT apply harness policy (e.g. TPM rate limiting). That belongs i
 ```
 Entry point
   → createHarnessContext({ agentName, config, ... })
-    → createLLM({ provider, model })
-      → provider.create()       // raw client
-      → applyRateLimiting()     // optional harness wrapper
+    → createLLM({ model: logicalName })
+      → createRoutingLLM
+        → resolveModel(options.model) → provider + modelId
+        → backend[provider].generate(..., { model: modelId })
+        → applyRateLimiting on openai backend only
     → createContext({ llm, ... })
   → agent loop / tool.execute
 ```
@@ -149,9 +151,9 @@ Entry point
 - Tools and the agent loop do not construct LLMs. They receive the shared instance through `context.llm`.
 - One `LLM` instance per run. The orchestrator and composite tools (e.g. narrative generators that make inner LLM calls) share it — and therefore share any active rate-limit budget.
 
-**Supported providers.** Only OpenAI is implemented today. The provider registry in `createLLM` is structured so additional backends can be registered later; Anthropic, local models, and other hosted APIs are deferred until there is a concrete need.
+**Supported providers.** OpenAI and Bedrock are registered in `createLLM`'s provider map. Additional backends follow the same pattern: implement transport in a provider module, register in the map, add explicit routes in `models.json`.
 
-**TPM rate limiting (optional).** When `OPENAI_TPM_LIMIT` is set, the harness wraps the OpenAI-backed instance in a rolling 60-second token bucket. Before each call it reserves an estimated token count (`LLM_TOKEN_ESTIMATE`, default 3000); after the call it records actual usage from the response. If the window is full, the harness waits until older usage expires and logs a brief message to stderr. When the limit is unset, there is no proactive pacing — calls proceed as fast as callers request them, with reactive 429 retry remaining as a fallback at the provider layer.
+**TPM rate limiting (optional).** When `OPENAI_TPM_LIMIT` is set, the harness wraps the OpenAI backend in a rolling 60-second token bucket. Bedrock-routed calls are not charged against this bucket. Before each OpenAI call it reserves an estimated token count (`LLM_TOKEN_ESTIMATE`, default 3000); after the call it records actual usage from the response.
 
 ## Core patterns
 
@@ -201,11 +203,13 @@ Currently this is implemented as cache tools that the agent calls explicitly. Th
 
 ### Model configuration
 
-Model selection is split across two concerns:
+Model selection is split across three concerns:
 
-**Which model** — configured centrally in `models.json`, not scattered across tool code. Different capabilities have different reasoning demands: the orchestrator may use a stronger model than a utility tool. Composite tools pass a per-tool model name as an option on each call to the shared `context.llm` instance; upgrading models does not require changes to agent or tool code.
+**Which logical model** — configured centrally in `models.json` (`default`, `agents`, `tools`), not scattered across tool code. Names are host-agnostic (e.g. `sonnet-4.6`, `gpt-4o`). Composite tools pass a logical model name as an option on each call to the shared `context.llm` instance; switching hosts does not require tool code changes.
 
-**Which provider and how calls are paced** — resolved at bootstrap by `createLLM` via `LLM_PROVIDER` (default `openai`) and optional TPM env vars. Provider selection and rate-limit policy are per-run; model selection is per-call on the same instance.
+**Which provider hosts each logical model** — an explicit `routes` table in `models.json` maps each logical name to `{ provider, modelId }`. Routing is never inferred from name patterns. For OpenAI, `modelId` is the API model string. For Bedrock, `modelId` is a key in gitignored `bedrock.json` (resolved to an inference profile ARN at call time).
+
+**How calls are paced** — resolved at bootstrap by `createLLM`. OpenAI TPM pacing applies only to OpenAI-routed calls. One routing `LLM` instance per run delegates each call to the correct backend based on `options.model`.
 
 ### Tracing
 
@@ -229,7 +233,7 @@ Adding a new external service = connecting to a new MCP server and building tool
 
 ### New LLM providers
 
-Additional providers are deferred until needed. When one is added, implement transport in a provider module (SDK, auth, response parsing) and register it in `createLLM`'s provider map. Harness policy — TPM pacing, future shared limits — stays in `createLLM`, not in the provider. Only OpenAI is registered today.
+Register the provider in `createLLM`'s provider map and add explicit routes in `models.json`. Implement transport in a provider module (SDK or CLI, auth, response parsing). Harness policy — TPM pacing, future shared limits — stays in `createLLM`, applied per backend (OpenAI TPM today). Callers continue using logical model names; they never import providers directly.
 
 ### New capabilities
 

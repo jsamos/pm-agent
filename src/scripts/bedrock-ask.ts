@@ -1,17 +1,18 @@
 /**
  * Send a prompt to Bedrock Converse via the AWS CLI.
- * Config is loaded from .env and src/config/bedrock.json.
+ * Uses host-agnostic model routing from models.json.
  *
  * Usage:
  *   npm run bedrock:ask -- 'Say hello in one word.'
- *   BEDROCK_MODEL=opus-4.6 npm run bedrock:ask -- '...'
- *   npm run bedrock:models   # list model keys and ARNs
+ *   LLM_MODEL=opus-4.6 npm run bedrock:ask -- '...'
+ *   npm run bedrock:models   # list bedrock.json keys and ARNs
  */
 
 import "dotenv/config";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { loadBedrockConfig, resolveBedrockModelId } from "../lib/bedrock-models.js";
+import { resolveModel, getDefaultLogicalModel } from "../lib/resolve-model.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -45,7 +46,7 @@ function usage(): void {
     "Usage: npm run bedrock:ask -- '<your prompt>'\n\n" +
       "Requires in .env:\n" +
       "  AWS_PROFILE\n" +
-      "  BEDROCK_MODEL (e.g. sonnet-4.6, sonnet-5, haiku-4.5, opus-4.6) — see npm run bedrock:models\n\n" +
+      "  LLM_MODEL (logical name, e.g. sonnet-4.6) — defaults to models.json default\n\n" +
       "Optional:\n" +
       "  BEDROCK_MODEL_ID — override with a raw inference profile ARN\n" +
       "  AWS_REGION\n" +
@@ -66,13 +67,23 @@ async function main() {
     process.exit(1);
   }
 
+  const logicalModel = process.env.LLM_MODEL?.trim() || getDefaultLogicalModel();
+  const route = resolveModel(logicalModel);
+  if (route.provider !== "bedrock") {
+    process.stderr.write(
+      `LLM_MODEL=${logicalModel} routes to provider "${route.provider}". ` +
+        "bedrock:ask requires a Bedrock-routed model (see models.json routes).\n",
+    );
+    process.exit(1);
+  }
+
   const config = loadBedrockConfig();
   const region = process.env.AWS_REGION ?? config.region ?? "us-east-1";
   const maxTokens = Number(process.env.BEDROCK_MAX_TOKENS ?? 1024);
 
   const resolved = resolveBedrockModelId({
     config,
-    modelKey: process.env.BEDROCK_MODEL,
+    modelKey: route.modelId,
     modelIdOverride: process.env.BEDROCK_MODEL_ID,
   });
 
@@ -83,10 +94,7 @@ async function main() {
     maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : 1024,
   });
 
-  const modelNote = resolved.modelKey
-    ? `${resolved.modelKey} (${resolved.label})`
-    : "custom ARN";
-
+  const modelNote = `${logicalModel} (${resolved.label ?? route.modelId})`;
   const start = Date.now();
 
   try {

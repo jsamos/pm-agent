@@ -53,17 +53,33 @@ aws ssm get-parameters-by-path --path "/developer/bedrock" --recursive \
 }
 ```
 
-**`src/config/models.json`** — model selection per capability (committed, no secrets):
+**`src/config/models.json`** — host-agnostic logical model names and routing (committed, no secrets):
+
 ```json
 {
   "default": "gpt-4o",
   "agents": { "agent": "gpt-4o" },
   "tools": {
-    "generate_epic_narrative": "gpt-4o",
-    "generate_sprint_narrative": "gpt-4o"
+    "generate_epic_narrative": "sonnet-4.6",
+    "generate_sprint_narrative": "sonnet-4.6"
+  },
+  "routes": {
+    "gpt-4o": { "provider": "openai", "modelId": "gpt-4o" },
+    "sonnet-4.6": { "provider": "bedrock", "modelId": "sonnet-4.6" }
   }
 }
 ```
+
+**Logical names** (`sonnet-4.6`, `gpt-4o`) are what code and config reference — not provider-specific IDs. The **`routes`** table maps each name to a provider and `modelId`:
+
+| Provider | `modelId` meaning |
+|----------|-------------------|
+| `openai` | OpenAI API model string |
+| `bedrock` | Key in gitignored `bedrock.json` (resolved to an inference profile ARN at call time) |
+
+`createLLM` returns a **routing LLM**: one shared `context.llm` delegates each call to the correct backend based on `options.model`. The orchestrator can use `gpt-4o` while narrative tools use `sonnet-4.6` in the same run.
+
+See [`openspec/specs/model-routing/spec.md`](openspec/specs/model-routing/spec.md) for the full behavioral spec.
 
 Create a `.env` file with your keys:
 
@@ -76,19 +92,21 @@ cp .env.example .env
 
 Sprint narrative generation fires many parallel LLM calls (one per epic or assignee group). On lower OpenAI tiers that can burst past your org's **tokens-per-minute (TPM)** limit and return 429 errors.
 
-When `OPENAI_TPM_LIMIT` is set, all LLM calls in a single agent run share one rolling 60-second token budget. The harness applies pacing in `createLLM` (via `createHarnessContext`) before the instance reaches the agent loop or tools. Before each call it **reserves** an estimated token count; after the call it records actual usage from the response and adjusts the reservation. If the window is full, it waits until older usage expires:
+When `OPENAI_TPM_LIMIT` is set, all **OpenAI-routed** LLM calls in a single agent run share one rolling 60-second token budget. Bedrock-routed calls are not charged against the OpenAI bucket. The harness applies pacing in `createLLM` (via `createHarnessContext`) before the instance reaches the agent loop or tools.
+
+Before each OpenAI call the harness **reserves** an estimated token count; after the call it records actual usage from the response and adjusts the reservation. If the window is full, it waits until older usage expires:
 
 ```
   [llm] TPM wait — 12.3s (28000/30000 used, reserving ~3000)
 ```
 
-When `OPENAI_TPM_LIMIT` is **unset**, there is no proactive pacing — calls go out as fast as the agent requests them. Reactive 429 retry still applies via `withRateLimitRetry` (respecting `retry-after-ms` headers when present).
+When `OPENAI_TPM_LIMIT` is **unset**, there is no proactive pacing — OpenAI calls go out as fast as the agent requests them. Reactive 429 retry still applies via `withRateLimitRetry` (respecting `retry-after-ms` headers when present).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `OPENAI_TPM_LIMIT` | unset (off) | Your org TPM cap. Set to enable pacing. |
-| `LLM_PROVIDER` | `openai` | LLM backend selected by `createLLM`. |
-| `LLM_TOKEN_ESTIMATE` | `3000` | Tokens reserved before each call starts. Increase if narrative calls routinely exceed this. |
+| `OPENAI_TPM_LIMIT` | unset (off) | Your org TPM cap for OpenAI-routed calls. |
+| `LLM_MODEL` | `models.json` default | Override the default logical model (also used by `bedrock:ask`). |
+| `LLM_TOKEN_ESTIMATE` | `3000` | Tokens reserved before each OpenAI call starts. |
 | `LLM_MAX_RETRIES` | `5` | Max reactive retries on HTTP 429 after pacing. |
 
 **Recommended for tier-1 accounts:**

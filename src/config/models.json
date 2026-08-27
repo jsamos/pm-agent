@@ -6,7 +6,16 @@
     "sprint-rollup": "gpt-4o-mini"
   },
   "tools": {
-    "generate_epic_narrative": "gpt-4o",
-    "generate_sprint_narrative": "gpt-4o"
+    "generate_epic_narrative": "sonnet-4.6",
+    "generate_sprint_narrative": "sonnet-4.6"
+  },
+  "routes": {
+    "gpt-4o": { "provider": "openai", "modelId": "gpt-4o" },
+    "gpt-4o-mini": { "provider": "openai", "modelId": "gpt-4o-mini" },
+    "sonnet-4.6": { "provider": "bedrock", "modelId": "sonnet-4.6" },
+    "sonnet-5": { "provider": "bedrock", "modelId": "sonnet-5" },
+    "haiku-4.5": { "provider": "bedrock", "modelId": "haiku-4.5" },
+    "opus-4.6": { "provider": "bedrock", "modelId": "opus-4.6" },
+    "opus-4.8": { "provider": "bedrock", "modelId": "opus-4.8" }
   }
 }

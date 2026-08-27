@@ -84,13 +84,11 @@ export interface CreateHarnessContextOptions {
   /** Resolve model from models.json agents section (e.g. "agent"). */
   agentName?: string;
   model?: string;
-  provider?: string;
 }
 
 /** Bootstrap execution context with harness-managed LLM creation. */
 export function createHarnessContext(options: CreateHarnessContextOptions): ExecutionContext {
   const llm = options.llm ?? createLLM({
-    provider: options.provider,
     model: options.model ?? (options.agentName ? getModel(options.agentName) : undefined),
   });
 

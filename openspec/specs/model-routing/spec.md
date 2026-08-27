@@ -10,13 +10,13 @@ Resolve logical model names (e.g. `sonnet-4.6`) to a provider and provider-nativ
 
 The system SHALL use host-agnostic logical names in `models.json` for defaults, agents, and tools.
 
-#### Scenario: Tool references logical name
+#### Scenario: Tool references logical name [tested]
 
 - GIVEN `models.json` sets `"generate_sprint_narrative": "sonnet-4.6"`
 - WHEN `getToolModel("generate_sprint_narrative")` is called
 - THEN it returns `"sonnet-4.6"`
 
-#### Scenario: Agent references logical name
+#### Scenario: Agent references logical name [tested]
 
 - GIVEN `models.json` sets `"agent": "gpt-4o"`
 - WHEN `getModel("agent")` is called
@@ -26,25 +26,25 @@ The system SHALL use host-agnostic logical names in `models.json` for defaults, 
 
 The system SHALL define an explicit `routes` map in `models.json` that binds each logical model name to exactly one provider and `modelId`.
 
-#### Scenario: OpenAI route
+#### Scenario: OpenAI route [tested]
 
 - GIVEN `routes["gpt-4o"]` is `{ "provider": "openai", "modelId": "gpt-4o" }`
 - WHEN `resolveModel("gpt-4o")` is called
 - THEN it returns `{ provider: "openai", modelId: "gpt-4o" }`
 
-#### Scenario: Bedrock route
+#### Scenario: Bedrock route [tested]
 
 - GIVEN `routes["sonnet-4.6"]` is `{ "provider": "bedrock", "modelId": "sonnet-4.6" }`
 - WHEN `resolveModel("sonnet-4.6")` is called
 - THEN it returns `{ provider: "bedrock", modelId: "sonnet-4.6" }`
 
-#### Scenario: Unknown logical name
+#### Scenario: Unknown logical name [tested]
 
 - GIVEN no entry exists in `routes` for `"unknown-model"`
 - WHEN `resolveModel("unknown-model")` is called
 - THEN the system throws an error listing available logical model names
 
-#### Scenario: Every assigned name has a route
+#### Scenario: Every assigned name has a route [tested]
 
 - GIVEN a logical name appears in `default`, `agents`, or `tools`
 - WHEN the harness loads model config
@@ -55,13 +55,13 @@ The system SHALL define an explicit `routes` map in `models.json` that binds eac
 
 The routing table SHALL use `modelId` for all providers — not alternate field names such as `ref`.
 
-#### Scenario: OpenAI modelId is API model string
+#### Scenario: OpenAI modelId is API model string [tested]
 
 - GIVEN an OpenAI route with `"modelId": "gpt-4o-mini"`
 - WHEN the OpenAI provider receives that `modelId`
 - THEN it passes `"gpt-4o-mini"` to the OpenAI API unchanged
 
-#### Scenario: Bedrock modelId is bedrock.json key
+#### Scenario: Bedrock modelId is bedrock.json key [tested]
 
 - GIVEN a Bedrock route with `"modelId": "sonnet-4.6"`
 - AND `bedrock.json` maps `"sonnet-4.6"` to an inference profile ARN
@@ -72,7 +72,7 @@ The routing table SHALL use `modelId` for all providers — not alternate field 
 
 The system SHALL route each LLM call to the provider named in the resolved route for `options.model`.
 
-#### Scenario: Mixed providers in one run
+#### Scenario: Mixed providers in one run [tested]
 
 - GIVEN routes for `"gpt-4o"` (openai) and `"sonnet-4.6"` (bedrock)
 - AND a single `context.llm` from `createHarnessContext`
@@ -81,7 +81,7 @@ The system SHALL route each LLM call to the provider named in the resolved route
 - THEN the OpenAI provider handles the first call
 - AND the Bedrock provider handles the second call
 
-#### Scenario: Default model when options.model omitted
+#### Scenario: Default model when options.model omitted [tested]
 
 - GIVEN `createLLM` was bootstrapped with default logical model `"gpt-4o"`
 - WHEN `llm.generate(messages)` is called without `options.model`
@@ -91,20 +91,26 @@ The system SHALL route each LLM call to the provider named in the resolved route
 
 The Bedrock provider SHALL implement `generate` and `generateWithTools` using the Bedrock Converse API.
 
-#### Scenario: Text generation
+#### Scenario: Text generation [manual]
 
 - GIVEN a resolved Bedrock route and valid AWS credentials
 - WHEN `generate` is called with user messages
 - THEN the provider invokes Converse and returns text content in `LLMResponse`
 
-#### Scenario: Tool use
+#### Scenario: Text generation (unit) [tested]
+
+- GIVEN a mocked Converse response
+- WHEN the Bedrock provider `generate` is called
+- THEN it returns parsed text content in `LLMResponse`
+
+#### Scenario: Tool use [tested]
 
 - GIVEN tool definitions are supplied
 - WHEN `generateWithTools` is called
 - THEN the provider invokes Converse with tools
 - AND returns tool calls or final text consistent with the `LLM` interface
 
-#### Scenario: Missing bedrock.json entry
+#### Scenario: Missing bedrock.json entry [tested]
 
 - GIVEN a Bedrock route with `"modelId": "sonnet-4.6"`
 - AND `bedrock.json` has no entry for `"sonnet-4.6"`
@@ -115,14 +121,14 @@ The Bedrock provider SHALL implement `generate` and `generateWithTools` using th
 
 Entry points SHALL obtain LLM access through `createHarnessContext` / `createLLM`. Tools SHALL NOT import providers directly.
 
-#### Scenario: Routing applied at factory
+#### Scenario: Routing applied at factory [tested]
 
 - GIVEN model routes are configured
 - WHEN `createLLM()` is called without an injected mock
 - THEN it returns a routing LLM that delegates to registered providers
 - AND applies harness policy (e.g. OpenAI TPM wrapping) per provider as today
 
-#### Scenario: Tests inject mock LLM
+#### Scenario: Tests inject mock LLM [tested]
 
 - GIVEN a test passes `llm: mockLlm` to `createHarnessContext`
 - WHEN the context is created
@@ -133,7 +139,7 @@ Entry points SHALL obtain LLM access through `createHarnessContext` / `createLLM
 
 OpenAI TPM rate limiting SHALL continue to apply only to OpenAI-routed calls.
 
-#### Scenario: Bedrock calls bypass OpenAI TPM bucket
+#### Scenario: Bedrock calls bypass OpenAI TPM bucket [tested]
 
 - GIVEN `OPENAI_TPM_LIMIT` is set
 - WHEN a call is routed to the Bedrock provider
@@ -143,14 +149,14 @@ OpenAI TPM rate limiting SHALL continue to apply only to OpenAI-routed calls.
 
 The `bedrock:ask` CLI SHALL resolve logical model names through the same routing and Bedrock config as the harness.
 
-#### Scenario: Ask with logical name
+#### Scenario: Ask with logical name [manual]
 
 - GIVEN `routes["sonnet-4.6"]` points to Bedrock
 - AND `LLM_MODEL=sonnet-4.6` (or equivalent documented env) is set
 - WHEN `npm run bedrock:ask -- 'hello'` runs
 - THEN it resolves `"sonnet-4.6"` and invokes Converse with the matching inference profile ARN
 
-#### Scenario: Ask with non-Bedrock route
+#### Scenario: Ask with non-Bedrock route [tested]
 
 - GIVEN `LLM_MODEL=gpt-4o` and that route points to OpenAI
 - WHEN `npm run bedrock:ask` runs
@@ -160,7 +166,7 @@ The `bedrock:ask` CLI SHALL resolve logical model names through the same routing
 
 Tests and committed examples SHALL use placeholder account IDs and inference profile identifiers only.
 
-#### Scenario: Test fixtures
+#### Scenario: Test fixtures [tested]
 
 - GIVEN a test configures Bedrock routes or ARNs
 - WHEN the test file is committed
