@@ -8,8 +8,8 @@ describe("extractJson", () => {
   });
 
   it("extracts JSON from an unclosed fence (truncated output)", () => {
-    const raw = '```json\n{"groupKey": "Alice", "delivered": ["text"]';
-    expect(extractJson(raw)).toBe('{"groupKey": "Alice", "delivered": ["text"]');
+    const raw = '```json\n{"groupKey": "Alice", "done": ["text"]';
+    expect(extractJson(raw)).toBe('{"groupKey": "Alice", "done": ["text"]');
   });
 
   it("extracts JSON from bare text with preamble", () => {

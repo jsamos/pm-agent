@@ -1,26 +1,36 @@
 /**
  * Shared structured-output LLM calls for narrative tools.
  * Uses tool-use input (provider-parsed) with JSON-text fallback.
+ *
+ * Vocabulary (aligned end-to-end): done / inProgress / notStarted
  */
 
 import type { LLM, LLMResponse, ToolDefinition } from "./llm.js";
 import { extractJson } from "./extract-json.js";
 import { trace } from "./agent-loop.js";
 
-export const SUBMIT_GROUP_NARRATIVE_TOOL: ToolDefinition = {
-  name: "submit_group_narrative",
-  description: "Submit the prose narrative for one sprint group.",
+export const SUBMIT_NARRATIVE_TOOL: ToolDefinition = {
+  name: "submit_narrative",
+  description: "Submit the prose narrative for one sprint group or epic.",
   parameters: {
     type: "object",
     properties: {
       groupKey: {
         type: "string",
-        description: "Exact group key from the input (e.g. PROJ-100, Alice Martin).",
+        description: "Exact group key from the input (sprint groups only; omit for epic-only calls).",
       },
-      delivered: {
+      sectionType: {
+        type: "string",
+        description: "Epic only: outcome or unlock.",
+      },
+      section: {
+        type: "string",
+        description: "Epic only: 2-4 sentences describing what the epic achieves.",
+      },
+      done: {
         type: "array",
         items: { type: "string" },
-        description: "Paragraphs for delivered/done work with inline issue citations.",
+        description: "Paragraphs for done work with inline issue citations.",
       },
       inProgress: {
         type: "array",
@@ -33,154 +43,113 @@ export const SUBMIT_GROUP_NARRATIVE_TOOL: ToolDefinition = {
         description: "Paragraphs for not-started work with inline issue citations.",
       },
     },
-    required: ["groupKey"],
   },
 };
 
-export const SUBMIT_EPIC_NARRATIVE_TOOL: ToolDefinition = {
-  name: "submit_epic_narrative",
-  description: "Submit the prose narrative for one epic.",
-  parameters: {
-    type: "object",
-    properties: {
-      sectionType: {
-        type: "string",
-        description: "outcome or unlock",
-      },
-      section: {
-        type: "string",
-        description: "2-4 sentences describing what this epic achieves.",
-      },
-      done: {
-        type: "array",
-        items: { type: "string" },
-        description: "Paragraphs for completed work with inline issue citations.",
-      },
-      inMotion: {
-        type: "array",
-        items: { type: "string" },
-        description: "Paragraphs for active work with inline issue citations.",
-      },
-      notStarted: {
-        type: "array",
-        items: { type: "string" },
-        description: "Paragraphs for not-started work with inline issue citations.",
-      },
-    },
-  },
-};
+/** @deprecated use SUBMIT_NARRATIVE_TOOL */
+export const SUBMIT_GROUP_NARRATIVE_TOOL = SUBMIT_NARRATIVE_TOOL;
+/** @deprecated use SUBMIT_NARRATIVE_TOOL */
+export const SUBMIT_EPIC_NARRATIVE_TOOL = SUBMIT_NARRATIVE_TOOL;
 
-export interface GroupNarrativeFields {
-  groupKey: string;
-  delivered?: string[];
+const SUBMIT_TOOL_NAMES = new Set([
+  SUBMIT_NARRATIVE_TOOL.name,
+  "submit_group_narrative",
+  "submit_epic_narrative",
+]);
+
+export interface NarrativeFields {
+  groupKey?: string;
+  sectionType?: string;
+  section?: string;
+  done?: string[];
   inProgress?: string[];
   notStarted?: string[];
 }
 
+/** @deprecated use NarrativeFields */
+export type GroupNarrativeFields = NarrativeFields & { groupKey: string };
+
+/** @deprecated use NarrativeFields */
+export type EpicNarrativeFields = NarrativeFields;
+
 export interface ExpectedNarrativeSections {
-  delivered: number;
+  done: number;
   inProgress: number;
   notStarted: number;
 }
 
-export function countExpectedSections(userMessage: string): ExpectedNarrativeSections {
-  const counts = { delivered: 0, inProgress: 0, notStarted: 0 };
-  const doneMatch = userMessage.match(/^\s*Done \((\d+)\):/m);
-  const inProgressMatch = userMessage.match(/^\s*In Progress \((\d+)\):/m);
-  const notStartedMatch = userMessage.match(/^\s*Not Started \((\d+)\):/m);
-  if (doneMatch) counts.delivered = Number(doneMatch[1]);
-  if (inProgressMatch) counts.inProgress = Number(inProgressMatch[1]);
-  if (notStartedMatch) counts.notStarted = Number(notStartedMatch[1]);
-  return counts;
-}
-
-export function isGroupNarrativeComplete(
-  parsed: GroupNarrativeFields,
+export function isNarrativeComplete(
+  parsed: NarrativeFields,
   expected: ExpectedNarrativeSections,
 ): boolean {
-  if (expected.delivered > 0 && (!parsed.delivered || parsed.delivered.length === 0)) return false;
+  if (expected.done > 0 && (!parsed.done || parsed.done.length === 0)) return false;
   if (expected.inProgress > 0 && (!parsed.inProgress || parsed.inProgress.length === 0)) return false;
   if (expected.notStarted > 0 && (!parsed.notStarted || parsed.notStarted.length === 0)) return false;
   return true;
 }
 
-export interface EpicNarrativeFields {
-  sectionType?: string;
-  section?: string;
-  done?: string[];
-  inMotion?: string[];
-  notStarted?: string[];
-}
+/** @deprecated use isNarrativeComplete */
+export const isGroupNarrativeComplete = isNarrativeComplete;
 
 function asStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value.filter((item): item is string => typeof item === "string");
 }
 
-function fromGroupToolArguments(args: Record<string, unknown>, fallbackGroupKey: string): GroupNarrativeFields {
+function fromToolArguments(args: Record<string, unknown>, fallbackGroupKey?: string): NarrativeFields {
   const groupKey = typeof args.groupKey === "string" && args.groupKey.trim()
     ? args.groupKey.trim()
     : fallbackGroupKey;
 
   return {
-    groupKey,
-    delivered: asStringArray(args.delivered),
+    ...(groupKey ? { groupKey } : {}),
+    sectionType: typeof args.sectionType === "string" ? args.sectionType : undefined,
+    section: typeof args.section === "string" ? args.section : undefined,
+    done: asStringArray(args.done),
     inProgress: asStringArray(args.inProgress),
     notStarted: asStringArray(args.notStarted),
   };
 }
 
-function fromEpicToolArguments(args: Record<string, unknown>): EpicNarrativeFields {
-  return {
-    sectionType: typeof args.sectionType === "string" ? args.sectionType : undefined,
-    section: typeof args.section === "string" ? args.section : undefined,
-    done: asStringArray(args.done),
-    inMotion: asStringArray(args.inMotion),
-    notStarted: asStringArray(args.notStarted),
-  };
+function findNarrativeToolCall(response: LLMResponse) {
+  return response.toolCalls.find((tc) => SUBMIT_TOOL_NAMES.has(tc.name));
 }
 
-export function parseGroupNarrativeResponse(
+export function parseNarrativeResponse(
   response: LLMResponse,
-  fallbackGroupKey: string,
-): { parsed: GroupNarrativeFields; source: "tool" | "json" | "fallback" } {
-  const toolCall = response.toolCalls.find((tc) => tc.name === SUBMIT_GROUP_NARRATIVE_TOOL.name);
+  fallbackGroupKey?: string,
+): { parsed: NarrativeFields; source: "tool" | "json" | "fallback" } {
+  const toolCall = findNarrativeToolCall(response);
   if (toolCall) {
-    return { parsed: fromGroupToolArguments(toolCall.arguments, fallbackGroupKey), source: "tool" };
+    return { parsed: fromToolArguments(toolCall.arguments, fallbackGroupKey), source: "tool" };
   }
 
   const raw = response.content || "";
   if (raw.trim()) {
     try {
-      const parsed = JSON.parse(extractJson(raw)) as GroupNarrativeFields;
-      if (!parsed.groupKey) parsed.groupKey = fallbackGroupKey;
+      const parsed = fromToolArguments(JSON.parse(extractJson(raw)) as Record<string, unknown>, fallbackGroupKey);
       return { parsed, source: "json" };
     } catch {
       // fall through
     }
   }
 
-  return { parsed: { groupKey: fallbackGroupKey }, source: "fallback" };
+  return { parsed: fallbackGroupKey ? { groupKey: fallbackGroupKey } : {}, source: "fallback" };
 }
 
+/** @deprecated use parseNarrativeResponse */
+export function parseGroupNarrativeResponse(
+  response: LLMResponse,
+  fallbackGroupKey: string,
+): { parsed: NarrativeFields; source: "tool" | "json" | "fallback" } {
+  return parseNarrativeResponse(response, fallbackGroupKey);
+}
+
+/** @deprecated use parseNarrativeResponse */
 export function parseEpicNarrativeResponse(
   response: LLMResponse,
-): { parsed: EpicNarrativeFields; source: "tool" | "json" | "fallback" } {
-  const toolCall = response.toolCalls.find((tc) => tc.name === SUBMIT_EPIC_NARRATIVE_TOOL.name);
-  if (toolCall) {
-    return { parsed: fromEpicToolArguments(toolCall.arguments), source: "tool" };
-  }
-
-  const raw = response.content || "";
-  if (raw.trim()) {
-    try {
-      return { parsed: JSON.parse(extractJson(raw)) as EpicNarrativeFields, source: "json" };
-    } catch {
-      // fall through
-    }
-  }
-
-  return { parsed: {}, source: "fallback" };
+): { parsed: NarrativeFields; source: "tool" | "json" | "fallback" } {
+  return parseNarrativeResponse(response);
 }
 
 export async function callStructuredNarrativeLlm<T>(options: {
@@ -196,7 +165,7 @@ export async function callStructuredNarrativeLlm<T>(options: {
   parseResponse: (response: LLMResponse) => { parsed: T; source: "tool" | "json" | "fallback" };
   isComplete?: (parsed: T) => boolean;
 }): Promise<T> {
-  const submitToolName = options.tools[0]?.name;
+  const submitToolName = SUBMIT_NARRATIVE_TOOL.name;
 
   async function invoke(userMessage: string, attempt: number): Promise<{ parsed: T; source: "tool" | "json" | "fallback"; ms: number }> {
     trace("inner_llm_request", {
@@ -251,7 +220,7 @@ export async function callStructuredNarrativeLlm<T>(options: {
     process.stderr.write(
       `  [warn] ${options.tracingTool}: ${reason} for "${options.traceLabel}" — retrying\n`,
     );
-    const retryMessage = `${options.userMessage}\n\nIMPORTANT: Call ${submitToolName} now. Include prose for every status section that has issues (delivered, inProgress, notStarted). Do not reply with analysis only.`;
+    const retryMessage = `${options.userMessage}\n\nIMPORTANT: Call ${submitToolName} now with fields done, inProgress, notStarted. Include prose for every status section that has issues. Do not reply with analysis only.`;
     ({ parsed, source } = await invoke(retryMessage, 2));
   }
 

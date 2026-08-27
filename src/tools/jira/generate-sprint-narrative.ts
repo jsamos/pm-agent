@@ -20,11 +20,12 @@ import { getToolLlmConfig } from "../../lib/models.js";
 import { extractDiffFromLog, formatDiffBlock, epicGroupKeyFromParent, type ParentChange } from "./format-diff.js";
 import {
   callStructuredNarrativeLlm,
-  parseGroupNarrativeResponse,
-  SUBMIT_GROUP_NARRATIVE_TOOL,
-  countExpectedSections,
-  isGroupNarrativeComplete,
+  parseNarrativeResponse,
+  SUBMIT_NARRATIVE_TOOL,
+  isNarrativeComplete,
+  type ExpectedNarrativeSections,
 } from "../../lib/narrative-llm.js";
+import { NARRATIVE_HEADINGS, NARRATIVE_MESSAGE_LABELS } from "../../lib/narrative-headings.js";
 import { resolveDescriptionLimit } from "../../lib/narrative-config.js";
 import type { ToolLlmConfig } from "../../lib/resolve-model.js";
 import {
@@ -62,9 +63,34 @@ export function renderHeading(group: IssueGroup, outerKey: string, jiraBase: str
 
 export interface GroupNarrative {
   groupKey: string;
-  delivered?: string[];
+  done?: string[];
   inProgress?: string[];
   notStarted?: string[];
+}
+
+/** Normalize legacy cache entries written before vocabulary unification. */
+export function normalizeGroupNarrative(prose: GroupNarrative): GroupNarrative {
+  const legacy = prose as GroupNarrative & { delivered?: string[] };
+  return {
+    ...prose,
+    done: prose.done ?? legacy.delivered,
+  };
+}
+
+export function expectedSectionsFromGroup(group: IssueGroup): ExpectedNarrativeSections {
+  return {
+    done: getSubGroupIssues(group, "done").length,
+    inProgress: getSubGroupIssues(group, "in_progress").length,
+    notStarted: getSubGroupIssues(group, "not_started").length,
+  };
+}
+
+export function expectedSectionsFromUnit(unit: EpicUnit): ExpectedNarrativeSections {
+  return {
+    done: unit.done.length,
+    inProgress: unit.inProgress.length,
+    notStarted: unit.notStarted.length,
+  };
 }
 
 export function linkifyIssueKeys(text: string, issueKeys: Set<string>, jiraBase: string): string {
@@ -137,13 +163,13 @@ export function assembleMarkdown(
     }
 
     if (done.length > 0) {
-      sections.push(prose?.delivered?.join("\n\n") || "_No narrative generated._");
+      sections.push(`${NARRATIVE_HEADINGS.done}\n\n${prose?.done?.join("\n\n") || "_No narrative generated._"}`);
     }
     if (inProgress.length > 0) {
-      sections.push(`### In Progress\n\n${prose?.inProgress?.join("\n\n") || "_No narrative generated._"}`);
+      sections.push(`${NARRATIVE_HEADINGS.inProgress}\n\n${prose?.inProgress?.join("\n\n") || "_No narrative generated._"}`);
     }
     if (notStarted.length > 0) {
-      sections.push(`### Not Started\n\n${prose?.notStarted?.join("\n\n") || "_No narrative generated._"}`);
+      sections.push(`${NARRATIVE_HEADINGS.notStarted}\n\n${prose?.notStarted?.join("\n\n") || "_No narrative generated._"}`);
     }
 
     return sections.join("\n\n");
@@ -226,9 +252,9 @@ export function buildGroupMessage(
 
   if (group.subGroups) {
     const statusGroups = [
-      { key: "done", label: "Done" },
-      { key: "in_progress", label: "In Progress" },
-      { key: "not_started", label: "Not Started" },
+      { key: "done", label: NARRATIVE_MESSAGE_LABELS.done },
+      { key: "in_progress", label: NARRATIVE_MESSAGE_LABELS.inProgress },
+      { key: "not_started", label: NARRATIVE_MESSAGE_LABELS.notStarted },
     ];
 
     for (const { key, label } of statusGroups) {
@@ -304,15 +330,15 @@ export function buildEpicUnitMessage(unit: EpicUnit, jiraBase: string, descLimit
   ];
 
   if (unit.done.length > 0) {
-    lines.push(`  Done (${unit.done.length}):`);
+    lines.push(`  ${NARRATIVE_MESSAGE_LABELS.done} (${unit.done.length}):`);
     lines.push(...unit.done.map(fmt));
   }
   if (unit.inProgress.length > 0) {
-    lines.push(`  In Progress (${unit.inProgress.length}):`);
+    lines.push(`  ${NARRATIVE_MESSAGE_LABELS.inProgress} (${unit.inProgress.length}):`);
     lines.push(...unit.inProgress.map(fmt));
   }
   if (unit.notStarted.length > 0) {
-    lines.push(`  Not Started (${unit.notStarted.length}):`);
+    lines.push(`  ${NARRATIVE_MESSAGE_LABELS.notStarted} (${unit.notStarted.length}):`);
     lines.push(...unit.notStarted.map(fmt));
   }
 
@@ -356,9 +382,9 @@ export function assembleThreeLevelMarkdown(
     const sections: string[] = [`## ${assigneeGroup.groupLabel}`];
 
     const statusOrder = [
-      { statusField: "done" as const, proseField: "delivered" as const, heading: null },
-      { statusField: "inProgress" as const, proseField: "inProgress" as const, heading: "### In Progress" },
-      { statusField: "notStarted" as const, proseField: "notStarted" as const, heading: "### Not Started" },
+      { statusField: "done" as const, proseField: "done" as const, heading: NARRATIVE_HEADINGS.done },
+      { statusField: "inProgress" as const, proseField: "inProgress" as const, heading: NARRATIVE_HEADINGS.inProgress },
+      { statusField: "notStarted" as const, proseField: "notStarted" as const, heading: NARRATIVE_HEADINGS.notStarted },
     ];
 
     for (const { statusField, proseField, heading } of statusOrder) {
@@ -375,11 +401,7 @@ export function assembleThreeLevelMarkdown(
         epicParts.push(`${label}\n\n${text}`);
       }
 
-      if (heading) {
-        sections.push(`${heading}\n\n${epicParts.join("\n\n")}`);
-      } else {
-        sections.push(epicParts.join("\n\n"));
-      }
+      sections.push(`${heading}\n\n${epicParts.join("\n\n")}`);
     }
 
     md.push(sections.join("\n\n"));
@@ -399,19 +421,20 @@ async function callGroupNarrativeLlm(
   userMessage: string,
   traceLabel: string,
   toolLlm: ToolLlmConfig,
+  expected: ExpectedNarrativeSections,
 ): Promise<GroupNarrative> {
   return callStructuredNarrativeLlm({
     llm,
     tracingTool: "generate_sprint_narrative",
     systemPrompt: SYSTEM_PROMPT,
     userMessage,
-    tools: [SUBMIT_GROUP_NARRATIVE_TOOL],
+    tools: [SUBMIT_NARRATIVE_TOOL],
     model: toolLlm.model,
     traceLabel,
     maxTokens: toolLlm.maxTokens,
     temperature: toolLlm.temperature,
-    parseResponse: (response) => parseGroupNarrativeResponse(response, groupKey),
-    isComplete: (parsed) => isGroupNarrativeComplete(parsed, countExpectedSections(userMessage)),
+    parseResponse: (response) => parseNarrativeResponse(response, groupKey),
+    isComplete: (parsed) => isNarrativeComplete(parsed, expected),
   });
 }
 
@@ -424,7 +447,14 @@ async function generateForGroup(
   toolLlm: ToolLlmConfig,
 ): Promise<GroupNarrative> {
   const userMessage = buildGroupMessage(group, outerKey, jiraBase, descLimit);
-  return callGroupNarrativeLlm(llm, group.groupKey, userMessage, group.groupKey, toolLlm);
+  return callGroupNarrativeLlm(
+    llm,
+    group.groupKey,
+    userMessage,
+    group.groupKey,
+    toolLlm,
+    expectedSectionsFromGroup(group),
+  );
 }
 
 /**
@@ -638,7 +668,7 @@ export const generateSprintNarrativeTool: Tool = {
             diffSignals!.parentChanges,
           );
           if (cached && !affected) {
-            proseMap.set(compositeKey, cached.prose);
+            proseMap.set(compositeKey, normalizeGroupNarrative(cached.prose));
             reusedCount++;
           } else {
             unitsToGenerate.push(unit);
@@ -667,6 +697,7 @@ export const generateSprintNarrativeTool: Tool = {
               userMessage,
               `${unit.assigneeLabel} / ${unit.epicLabel}`,
               toolLlm,
+              expectedSectionsFromUnit(unit),
             );
             return { key: compositeKey, narrative: narrativeResult };
           }),
@@ -734,7 +765,7 @@ export const generateSprintNarrativeTool: Tool = {
             diffSignals!.parentChanges,
           );
           if (cached && !affected) {
-            cachedProse.set(group.groupKey, cached.prose);
+            cachedProse.set(group.groupKey, normalizeGroupNarrative(cached.prose));
             reusedCount++;
           } else {
             groupsToGenerate.push(group);
@@ -822,7 +853,7 @@ export const generateSprintNarrativeTool: Tool = {
 
     return {
       narrative,
-      summary: `Sprint narrative generated — ${llmCallCount} LLM calls, ${reusedCount} reused from cache. ${totalDelivered} delivered, ${totalInProgress} in progress.${cacheNote} Full content available via contentFrom: "generate_sprint_narrative".`,
+      summary: `Sprint narrative generated — ${llmCallCount} LLM calls, ${reusedCount} reused from cache. ${totalDelivered} done, ${totalInProgress} in progress.${cacheNote} Full content available via contentFrom: "generate_sprint_narrative".`,
     };
   },
 };

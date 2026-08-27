@@ -10,11 +10,11 @@ describe("assembleEpicMarkdown", () => {
       sectionType: "outcome",
       section: "This epic delivers X.",
       done: ["Completed work paragraph."],
-      inMotion: ["Active work paragraph."],
+      inProgress: ["Active work paragraph."],
       notStarted: ["Pending work paragraph."],
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 3, inMotion: 2, notStarted: 1 });
+    const md = assembleEpicMarkdown(parsed, { done: 3, inProgress: 2, notStarted: 1 });
 
     expect(md).toContain("## Outcome\n\nThis epic delivers X.");
     expect(md).toContain("## What's Been Done\n\nCompleted work paragraph.");
@@ -28,7 +28,7 @@ describe("assembleEpicMarkdown", () => {
       section: "Technical capability.",
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 0, notStarted: 0 });
+    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 });
     expect(md).toContain("## Unlock\n\nTechnical capability.");
   });
 
@@ -38,28 +38,28 @@ describe("assembleEpicMarkdown", () => {
       section: "Description.",
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 0, notStarted: 0 });
+    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 });
     expect(md).toContain("## Outcome\n\nDescription.");
   });
 
   it("omits done section when no done issues exist", () => {
     const parsed: EpicNarrativeParsed = {
       done: ["This should not appear."],
-      inMotion: ["Active work."],
+      inProgress: ["Active work."],
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 2, notStarted: 0 });
+    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 2, notStarted: 0 });
     expect(md).not.toContain("What's Been Done");
     expect(md).toContain("What's In Motion");
   });
 
-  it("omits inMotion section when no in-progress issues exist", () => {
+  it("omits inProgress section when no in-progress issues exist", () => {
     const parsed: EpicNarrativeParsed = {
       done: ["Done work."],
-      inMotion: ["This should not appear."],
+      inProgress: ["This should not appear."],
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 5, inMotion: 0, notStarted: 0 });
+    const md = assembleEpicMarkdown(parsed, { done: 5, inProgress: 0, notStarted: 0 });
     expect(md).toContain("What's Been Done");
     expect(md).not.toContain("What's In Motion");
   });
@@ -67,10 +67,10 @@ describe("assembleEpicMarkdown", () => {
   it("omits section when LLM returns empty array", () => {
     const parsed: EpicNarrativeParsed = {
       done: [],
-      inMotion: ["Active."],
+      inProgress: ["Active."],
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 3, inMotion: 1, notStarted: 0 });
+    const md = assembleEpicMarkdown(parsed, { done: 3, inProgress: 1, notStarted: 0 });
     expect(md).not.toContain("What's Been Done");
     expect(md).toContain("What's In Motion");
   });
@@ -80,12 +80,12 @@ describe("assembleEpicMarkdown", () => {
       done: ["First paragraph.", "Second paragraph."],
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 5, inMotion: 0, notStarted: 0 });
+    const md = assembleEpicMarkdown(parsed, { done: 5, inProgress: 0, notStarted: 0 });
     expect(md).toContain("First paragraph.\n\nSecond paragraph.");
   });
 
   it("returns empty string when nothing to render", () => {
-    const md = assembleEpicMarkdown({}, { done: 0, inMotion: 0, notStarted: 0 });
+    const md = assembleEpicMarkdown({}, { done: 0, inProgress: 0, notStarted: 0 });
     expect(md).toBe("");
   });
 
@@ -96,7 +96,7 @@ describe("assembleEpicMarkdown", () => {
       done: ["Done."],
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 1, inMotion: 0, notStarted: 0 });
+    const md = assembleEpicMarkdown(parsed, { done: 1, inProgress: 0, notStarted: 0 });
     expect(md).toContain("---");
     const parts = md.split("\n\n---\n\n");
     expect(parts).toHaveLength(2);
@@ -113,7 +113,7 @@ describe("assembleEpicMarkdown", () => {
       section: "Delivers notifications.",
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 0, notStarted: 0 }, header);
+    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 }, header);
     expect(md).toContain("# Notification System");
     expect(md).toContain("[PROJ-100](https://example.atlassian.net/browse/PROJ-100)");
     expect(md).not.toContain("Assignee");
@@ -128,7 +128,7 @@ describe("assembleEpicMarkdown", () => {
     };
     const parsed: EpicNarrativeParsed = { section: "Overview." };
 
-    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 0, notStarted: 0 }, header);
+    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 }, header);
     expect(md).toContain("# Data Pipeline");
     expect(md).toContain("[PROJ-200]");
     expect(md).toContain("**Assignee:** Alice Martin");
@@ -143,7 +143,7 @@ describe("assembleEpicMarkdown", () => {
     };
     const parsed: EpicNarrativeParsed = { section: "Overview." };
 
-    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 0, notStarted: 0 }, header);
+    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 }, header);
     expect(md).toContain("# Search Feature");
     expect(md).not.toContain("Assignee");
   });
@@ -154,7 +154,7 @@ describe("assembleEpicMarkdown", () => {
       section: "Overview.",
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 0, inMotion: 0, notStarted: 0 });
+    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 });
     expect(md).not.toMatch(/^# /m);
     expect(md).toContain("## Outcome");
   });
@@ -195,7 +195,7 @@ const MOCK_LLM_RESPONSE = JSON.stringify({
   sectionType: "outcome",
   section: "This epic delivers a notification system.",
   done: ["Users receive email alerts."],
-  inMotion: ["Push notifications are being built ([PROJ-102](https://example.atlassian.net/browse/PROJ-102) · Alice Martin · In Progress)."],
+  inProgress: ["Push notifications are being built ([PROJ-102](https://example.atlassian.net/browse/PROJ-102) · Alice Martin · In Progress)."],
   notStarted: ["SMS integration is planned ([PROJ-103](https://example.atlassian.net/browse/PROJ-103) · Bob Chen · To Do)."],
 });
 
@@ -232,7 +232,7 @@ describe("generateEpicNarrativeTool.execute", () => {
     expect(result.narrative).toContain("## What's In Motion");
     expect(result.narrative).toContain("## What's Not Started");
     expect(result.summary).toContain("1 done");
-    expect(result.summary).toContain("1 in motion");
+    expect(result.summary).toContain("1 in progress");
     expect(result.summary).toContain("1 not started");
   });
 
@@ -259,7 +259,7 @@ describe("generateEpicNarrativeTool.execute", () => {
     const llmResp = JSON.stringify({
       sectionType: "unlock",
       section: "Enables data processing.",
-      inMotion: ["Pipeline work in progress ([PROJ-101](url) · Alice Martin · In Progress)."],
+      inProgress: ["Pipeline work in progress ([PROJ-101](url) · Alice Martin · In Progress)."],
     });
 
     const ctx = mockContext(log, llmResp);

@@ -25,7 +25,7 @@ import {
 import { saveNarrativeCache, computeThread } from "./narrative-cache.js";
 import type { IssueGroup, GroupIssuesResult } from "./group-issues.js";
 import type { JiraIssue } from "./search-issues.js";
-import { SUBMIT_GROUP_NARRATIVE_TOOL } from "../../lib/narrative-llm.js";
+import { SUBMIT_NARRATIVE_TOOL } from "../../lib/narrative-llm.js";
 
 const JIRA_BASE = "https://example.atlassian.net/browse";
 const PROMPTS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../prompts");
@@ -42,7 +42,7 @@ function mockNarrativeLlm(
           content: result.content ?? null,
           toolCalls: result.toolCalls.map((tc, idx) => ({
             id: `tool-${idx + 1}`,
-            name: SUBMIT_GROUP_NARRATIVE_TOOL.name,
+            name: SUBMIT_NARRATIVE_TOOL.name,
             arguments: tc.arguments,
           })),
           finishReason: "tool_calls" as const,
@@ -145,7 +145,7 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "PROJ-100", delivered: ["Onboarding is complete."] },
+      { groupKey: "PROJ-100", done: ["Onboarding is complete."] },
       { groupKey: "PROJ-200", inProgress: ["Export is in progress."] },
     ];
 
@@ -161,7 +161,7 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "User Onboarding", delivered: ["Matched by label."] },
+      { groupKey: "User Onboarding", done: ["Matched by label."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -175,7 +175,7 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "user onboarding", delivered: ["Case insensitive match."] },
+      { groupKey: "user onboarding", done: ["Case insensitive match."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -189,8 +189,8 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "PROJ-2", delivered: ["Zebra prose."] },
-      { groupKey: "PROJ-1", delivered: ["Alpha prose."] },
+      { groupKey: "PROJ-2", done: ["Zebra prose."] },
+      { groupKey: "PROJ-1", done: ["Alpha prose."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -206,8 +206,8 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "_no_epic_", delivered: ["Standalone prose."] },
-      { groupKey: "PROJ-1", delivered: ["Alpha prose."] },
+      { groupKey: "_no_epic_", done: ["Standalone prose."] },
+      { groupKey: "PROJ-1", done: ["Alpha prose."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -223,7 +223,7 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "PROJ-1", delivered: ["Alpha prose."] },
+      { groupKey: "PROJ-1", done: ["Alpha prose."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -239,8 +239,8 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "PROJ-1", delivered: ["Alpha."] },
-      { groupKey: "PROJ-2", delivered: ["Should not appear."] },
+      { groupKey: "PROJ-1", done: ["Alpha."] },
+      { groupKey: "PROJ-2", done: ["Should not appear."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -261,15 +261,15 @@ describe("assembleMarkdown", () => {
     const parsedGroups: GroupNarrative[] = [
       {
         groupKey: "PROJ-1",
-        delivered: ["Done prose."],
+        done: ["Done prose."],
         inProgress: ["WIP prose."],
         notStarted: ["Pending prose."],
       },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
-    expect(md).toContain("Done prose.");
-    expect(md).toContain("### In Progress\n\nWIP prose.");
+    expect(md).toContain("### What's Been Done\n\nDone prose.");
+    expect(md).toContain("### What's In Motion\n\nWIP prose.");
     expect(md).toContain("### Not Started\n\nPending prose.");
   });
 
@@ -289,7 +289,7 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: " PROJ-914 ", delivered: ["Trimmed key match."] },
+      { groupKey: " PROJ-914 ", done: ["Trimmed key match."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -305,7 +305,7 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "PROJ-1", delivered: ["Done."], inProgress: ["WIP."] },
+      { groupKey: "PROJ-1", done: ["Done."], inProgress: ["WIP."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -324,7 +324,7 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "PROJ-1", delivered: ["Done."], inProgress: ["WIP."] },
+      { groupKey: "PROJ-1", done: ["Done."], inProgress: ["WIP."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -340,7 +340,7 @@ describe("assembleMarkdown", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "PROJ-1", delivered: ["Done."] },
+      { groupKey: "PROJ-1", done: ["Done."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -385,7 +385,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "Dan Torres", delivered: ["Dan delivered work."] },
+      { groupKey: "Dan Torres", done: ["Dan delivered work."] },
       { groupKey: "Alice Martin", inProgress: ["Alice is working."] },
     ];
 
@@ -401,7 +401,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "dan torres", delivered: ["Case insensitive match."] },
+      { groupKey: "dan torres", done: ["Case insensitive match."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -415,7 +415,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: " Dan Torres ", delivered: ["Whitespace match."] },
+      { groupKey: " Dan Torres ", done: ["Whitespace match."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -429,7 +429,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "Dan Torres", delivered: ["Delivered."] },
+      { groupKey: "Dan Torres", done: ["Delivered."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -449,7 +449,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
     const parsedGroups: GroupNarrative[] = [
       {
         groupKey: "Alice",
-        delivered: ["Done prose."],
+        done: ["Done prose."],
         inProgress: ["WIP prose."],
         notStarted: ["Pending prose."],
       },
@@ -457,7 +457,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
     expect(md).toContain("Done prose.");
-    expect(md).toContain("### In Progress\n\nWIP prose.");
+    expect(md).toContain("### What's In Motion\n\nWIP prose.");
     expect(md).toContain("### Not Started\n\nPending prose.");
   });
 
@@ -469,7 +469,7 @@ describe("assembleMarkdown (assignee grouping)", () => {
     ]);
 
     const parsedGroups: GroupNarrative[] = [
-      { groupKey: "PROJ-1", delivered: ["Done."] },
+      { groupKey: "PROJ-1", done: ["Done."] },
     ];
 
     const { markdown: md } = assembleMarkdown(grouped, parsedGroups, JIRA_BASE);
@@ -541,7 +541,7 @@ describe("assembleMarkdown diagnostics", () => {
       },
     ]);
     const prose: GroupNarrative[] = [
-      { groupKey: "Alpha", heading: "Alpha", done: "Done.", inMotion: "Moving." },
+      { groupKey: "Alpha", done: ["Done."], inProgress: ["Moving."] },
     ];
     const result = assembleMarkdown(grouped, prose, JIRA_BASE);
     expect(result.matched).toBe(1);
@@ -561,7 +561,7 @@ describe("assembleMarkdown diagnostics", () => {
       },
     ]);
     const prose: GroupNarrative[] = [
-      { groupKey: "Wrong Key", heading: "Wrong", done: "Done." },
+      { groupKey: "Wrong Key", done: ["Done."] },
     ];
     const result = assembleMarkdown(grouped, prose, JIRA_BASE);
     expect(result.matched).toBe(0);
@@ -590,8 +590,8 @@ describe("assembleMarkdown diagnostics", () => {
       },
     ]);
     const prose: GroupNarrative[] = [
-      { groupKey: "Alpha", heading: "Alpha", done: "Done." },
-      { groupKey: "Gamma", heading: "Gamma", done: "Not matching." },
+      { groupKey: "Alpha", done: ["Done."] },
+      { groupKey: "Gamma", done: ["Not matching."] },
     ];
     const result = assembleMarkdown(grouped, prose, JIRA_BASE);
     expect(result.matched).toBe(1);
@@ -632,7 +632,7 @@ describe("assembleMarkdown diagnostics", () => {
       },
     ]);
     const prose: GroupNarrative[] = [
-      { groupKey: "WRONG-999 — Feature Beta", delivered: ["Shipped it."] },
+      { groupKey: "WRONG-999 — Feature Beta", done: ["Shipped it."] },
     ];
     const result = assembleMarkdown(grouped, prose, JIRA_BASE);
     expect(result.matched).toBe(1);
@@ -653,8 +653,8 @@ describe("buildGroupMessage", () => {
     expect(msg).toContain("Write prose for this single epic.");
     expect(msg).toContain("GROUP KEY: PROJ-1");
     expect(msg).toContain("GROUP LABEL: User Onboarding");
-    expect(msg).toContain("Done (1):");
-    expect(msg).toContain("In Progress (1):");
+    expect(msg).toContain("done (1):");
+    expect(msg).toContain("inProgress (1):");
     expect(msg).toContain("X-1");
     expect(msg).toContain("X-2");
   });
@@ -731,7 +731,7 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
           const key = groups[groupIdx]?.groupKey ?? "unknown";
           return narrativeToolResponse({
             groupKey: key,
-            delivered: [`Prose for ${key}.`],
+            done: [`Prose for ${key}.`],
           });
         }),
       },
@@ -774,7 +774,7 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
       llm: mockNarrativeLlm(() => {
         callN++;
         if (callN === 1) return { content: "not valid json at all" };
-        return narrativeToolResponse({ groupKey: "PROJ-2", delivered: ["Beta works."] });
+        return narrativeToolResponse({ groupKey: "PROJ-2", done: ["Beta works."] });
       }),
     };
 
@@ -841,7 +841,7 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
       ],
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({ groupKey: "Alice Martin", delivered: ["Alice delivered."] }),
+        narrativeToolResponse({ groupKey: "Alice Martin", done: ["Alice delivered."] }),
       ),
     };
 
@@ -966,15 +966,16 @@ describe("assembleThreeLevelMarkdown", () => {
 
     const units = flattenToEpicUnits(grouped);
     const proseMap = new Map<string, GroupNarrative>();
-    proseMap.set("Alice::PROJ-50", { groupKey: "Alice::PROJ-50", delivered: ["Clean claims delivered."] });
+    proseMap.set("Alice::PROJ-50", { groupKey: "Alice::PROJ-50", done: ["Clean claims delivered."] });
     proseMap.set("Alice::PROJ-60", { groupKey: "Alice::PROJ-60", inProgress: ["Eligibility in progress."] });
 
     const result = assembleThreeLevelMarkdown(grouped, units, proseMap, JIRA_BASE);
 
     expect(result.markdown).toContain("## Alice");
+    expect(result.markdown).toContain("### What's Been Done");
     expect(result.markdown).toContain("**Clean Claims**");
     expect(result.markdown).toContain("Clean claims delivered.");
-    expect(result.markdown).toContain("### In Progress");
+    expect(result.markdown).toContain("### What's In Motion");
     expect(result.markdown).toContain("**Eligibility**");
     expect(result.markdown).toContain("Eligibility in progress.");
   });
@@ -1003,7 +1004,7 @@ describe("assembleThreeLevelMarkdown", () => {
 
     const units = flattenToEpicUnits(grouped);
     const proseMap = new Map<string, GroupNarrative>();
-    proseMap.set("Bob::_no_epic_", { groupKey: "Bob::_no_epic_", delivered: ["Standalone work."] });
+    proseMap.set("Bob::_no_epic_", { groupKey: "Bob::_no_epic_", done: ["Standalone work."] });
 
     const result = assembleThreeLevelMarkdown(grouped, units, proseMap, JIRA_BASE);
     expect(result.markdown).toContain("**Other Work**");
@@ -1153,14 +1154,14 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
           groupKey: "PROJ-1",
           groupLabel: "Alpha",
           issueKeys: ["X-1"],
-          prose: { groupKey: "PROJ-1", delivered: ["Cached Alpha prose."] },
+          prose: { groupKey: "PROJ-1", done: ["Cached Alpha prose."] },
           renderedMarkdown: "## Alpha\n\nCached Alpha prose.",
         },
         {
           groupKey: "PROJ-2",
           groupLabel: "Beta",
           issueKeys: ["X-2"],
-          prose: { groupKey: "PROJ-2", delivered: ["Cached Beta prose."] },
+          prose: { groupKey: "PROJ-2", done: ["Cached Beta prose."] },
           renderedMarkdown: "## Beta\n\nCached Beta prose.",
         },
       ],
@@ -1197,7 +1198,7 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       ],
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({ groupKey: "PROJ-2", delivered: ["Fresh Beta prose."] }),
+        narrativeToolResponse({ groupKey: "PROJ-2", done: ["Fresh Beta prose."] }),
       ),
     };
 
@@ -1224,11 +1225,11 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       thread: THREAD,
       groupBy: ["epic", "status"],
       sections: [
-        { groupKey: "PROJ-1", groupLabel: "One", issueKeys: ["X-1"], prose: { groupKey: "PROJ-1", delivered: ["P1 cached."] }, renderedMarkdown: "" },
-        { groupKey: "PROJ-2", groupLabel: "Two", issueKeys: ["X-2"], prose: { groupKey: "PROJ-2", delivered: ["P2 cached."] }, renderedMarkdown: "" },
-        { groupKey: "PROJ-3", groupLabel: "Three", issueKeys: ["X-3"], prose: { groupKey: "PROJ-3", delivered: ["P3 cached."] }, renderedMarkdown: "" },
-        { groupKey: "PROJ-4", groupLabel: "Four", issueKeys: ["X-4"], prose: { groupKey: "PROJ-4", delivered: ["P4 cached."] }, renderedMarkdown: "" },
-        { groupKey: "PROJ-5", groupLabel: "Five", issueKeys: ["X-5"], prose: { groupKey: "PROJ-5", delivered: ["P5 cached."] }, renderedMarkdown: "" },
+        { groupKey: "PROJ-1", groupLabel: "One", issueKeys: ["X-1"], prose: { groupKey: "PROJ-1", done: ["P1 cached."] }, renderedMarkdown: "" },
+        { groupKey: "PROJ-2", groupLabel: "Two", issueKeys: ["X-2"], prose: { groupKey: "PROJ-2", done: ["P2 cached."] }, renderedMarkdown: "" },
+        { groupKey: "PROJ-3", groupLabel: "Three", issueKeys: ["X-3"], prose: { groupKey: "PROJ-3", done: ["P3 cached."] }, renderedMarkdown: "" },
+        { groupKey: "PROJ-4", groupLabel: "Four", issueKeys: ["X-4"], prose: { groupKey: "PROJ-4", done: ["P4 cached."] }, renderedMarkdown: "" },
+        { groupKey: "PROJ-5", groupLabel: "Five", issueKeys: ["X-5"], prose: { groupKey: "PROJ-5", done: ["P5 cached."] }, renderedMarkdown: "" },
       ],
     });
 
@@ -1274,7 +1275,7 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
         callN++;
         return narrativeToolResponse({
           groupKey: callN === 1 ? "PROJ-2" : "PROJ-4",
-          delivered: [`Fresh group ${callN}.`],
+          done: [`Fresh group ${callN}.`],
         });
       }),
     };
@@ -1309,7 +1310,7 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() => {
         callN++;
-        return narrativeToolResponse({ groupKey: "PROJ-1", delivered: ["Fresh Alpha."] });
+        return narrativeToolResponse({ groupKey: "PROJ-1", done: ["Fresh Alpha."] });
       }),
     };
 
@@ -1326,7 +1327,7 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       groupBy: ["epic", "status"],
       sections: [{
         groupKey: "PROJ-1", groupLabel: "Alpha", issueKeys: ["X-1"],
-        prose: { groupKey: "PROJ-1", delivered: ["Cached."] },
+        prose: { groupKey: "PROJ-1", done: ["Cached."] },
         renderedMarkdown: "## Alpha\n\nCached.",
       }],
     });
@@ -1350,7 +1351,7 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       ],
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({ groupKey: "Alice", delivered: ["Alice fresh."] }),
+        narrativeToolResponse({ groupKey: "Alice", done: ["Alice fresh."] }),
       ),
     };
 
@@ -1373,14 +1374,14 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
           groupKey: "PROJ-1",
           groupLabel: "Alpha",
           issueKeys: ["X-2"],
-          prose: { groupKey: "PROJ-1", delivered: ["Cached Alpha."] },
+          prose: { groupKey: "PROJ-1", done: ["Cached Alpha."] },
           renderedMarkdown: alphaMd,
         },
         {
           groupKey: "_no_epic_",
           groupLabel: "Other Work",
           issueKeys: ["X-1"],
-          prose: { groupKey: "_no_epic_", delivered: ["Standalone prose."] },
+          prose: { groupKey: "_no_epic_", done: ["Standalone prose."] },
           renderedMarkdown: standaloneMd,
         },
       ],
@@ -1418,7 +1419,7 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       ],
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({ groupKey: "PROJ-NEW", delivered: ["Fresh new epic prose."] }),
+        narrativeToolResponse({ groupKey: "PROJ-NEW", done: ["Fresh new epic prose."] }),
       ),
     };
 
@@ -1441,12 +1442,12 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       sections: [
         {
           groupKey: "PROJ-1", groupLabel: "Alpha", issueKeys: ["X-1"],
-          prose: { groupKey: "PROJ-1", delivered: ["Cached Alpha."] },
+          prose: { groupKey: "PROJ-1", done: ["Cached Alpha."] },
           renderedMarkdown: "## Alpha\n\nCached Alpha.",
         },
         {
           groupKey: "PROJ-2", groupLabel: "Beta", issueKeys: ["X-2"],
-          prose: { groupKey: "PROJ-2", delivered: ["Cached Beta."] },
+          prose: { groupKey: "PROJ-2", done: ["Cached Beta."] },
           renderedMarkdown: "## Beta\n\nCached Beta.",
         },
       ],
@@ -1465,7 +1466,7 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       ],
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({ groupKey: "PROJ-1", delivered: ["Fresh prose."] }),
+        narrativeToolResponse({ groupKey: "PROJ-1", done: ["Fresh prose."] }),
       ),
     };
 
@@ -1584,14 +1585,14 @@ describe("generateSprintNarrativeTool.execute (removed group)", () => {
           groupKey: "PROJ-1",
           groupLabel: "Alpha",
           issueKeys: ["X-1"],
-          prose: { groupKey: "PROJ-1", delivered: ["Alpha cached prose."] },
+          prose: { groupKey: "PROJ-1", done: ["Alpha cached prose."] },
           renderedMarkdown: "## Alpha\n\nAlpha cached prose.",
         },
         {
           groupKey: "PROJ-OLD",
           groupLabel: "Removed Epic",
           issueKeys: ["X-99"],
-          prose: { groupKey: "PROJ-OLD", delivered: ["Old cached prose."] },
+          prose: { groupKey: "PROJ-OLD", done: ["Old cached prose."] },
           renderedMarkdown: "## Removed Epic\n\nOld cached prose.",
         },
       ],
