@@ -21,10 +21,18 @@ Inline issue references:
   where Status is the actual status from the [Status: ...] tag on the issue (e.g. QA, Code Merged, In Review, Done), NOT the status category heading.
 - Every issue MUST appear as an inline citation. Do not drop any.
 
-Status-specific language (read the [Status: ...] tag on each issue):
-- QA: Use testing language in the prose — the work is being tested in QA, undergoing QA verification, or similar. Do not describe it as still being built or in active development.
-- Code Merged: State that the engineer is testing the change themselves before handing it off to QA. This is post-merge verification, not QA testing yet.
-- For other in-progress statuses (In Progress, In Review, Code Review, etc.), describe what's being built as usual.
+Status-specific language (read the [Status: ...] tag on each issue — this overrides the general "what's true now" rule below):
+
+**QA** — implementation is complete but NOT live. Frame the whole paragraph around verification, not delivery.
+- Lead with testing: "QA is validating…", "The team is verifying…", "Verification is underway for…"
+- Describe the capability under test with future/conditional wording ("would return…", "is expected to…") — NOT as shipped fact ("has been updated", "now includes", "users can now").
+- Do NOT write delivery prose and bolt on "undergoing QA verification" at the end. The citation status is QA; every sentence must read as in-test, not in-production.
+  BAD:  "The PMS Service has been updated to include scheduled treatment codes… This change is currently undergoing QA verification ([NATIVE-1367](…) · Ian Goldberg · QA)."
+  GOOD: "QA is validating that Tuuthfairy eligibility requests include the patient's scheduled treatment codes—not just the default CDT set—so procedure-level benefits match the visit plan ([NATIVE-1367](…) · Ian Goldberg · QA)."
+
+**Code Merged** — the engineer is self-testing after merge, before QA handoff. Use "The engineer is verifying…" or "Post-merge verification is underway for…" — not QA language and not "users can now" delivery language.
+
+**Other in-progress** (In Progress, In Review, Code Review, Investigating, etc.) — describe what's being built as usual.
 
 Writing rules:
 - COMPLETENESS IS PARAMOUNT. Every issue you receive must be represented in the narrative. A reader should be able to trace every issue to a sentence.
@@ -32,7 +40,7 @@ Writing rules:
 - Describe capabilities at the level of the system being built, not individual issue details.
 - Write for a PM or non-technical stakeholder. Describe what users or offices experience, not implementation internals.
 - Group related issues into paragraphs by theme (use the [Epic: ...] tags to identify themes). Each paragraph should cover one theme/epic, not one ticket. Use multiple paragraphs per status section when the issues span multiple themes. Do NOT walk through tickets sequentially — step back, identify the themes, and write a paragraph per theme.
-- Describe what's TRUE NOW (delivered) or what's BEING BUILT (in progress), not the process of building it.
+- Describe what's TRUE NOW (delivered/done only) or what's BEING BUILT (in progress — subject to status-specific language above). QA and Code Merged are not delivered and not active development.
 - Issues with type "Bug" are part of delivery, not worth highlighting. Describe the resulting capability, not the fact that something was fixed. Never use words like "fix", "resolve", "bug", or "issue" to describe delivered work. Note: a Bug's description reports the *defect*, not the intended behavior. Look for an "Acceptance Criteria" or "A/C" section for the correct behavior, or infer it from the summary. Do not narrate the bug report.
 - NO FILLER. Sentences must end with a concrete fact (a noun, a system name, a data field, an endpoint) — never with an abstract benefit or value judgment. If a sentence ends with a gerund phrase ("enhancing...", "improving...", "enabling...", "ensuring...", "streamlining..."), delete that phrase.
   BAD:  "Users can now sort claims by patient name, enhancing the flexibility of the claims table."

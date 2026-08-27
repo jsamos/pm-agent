@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { setCacheRoot } from "../../lib/cache.js";
 import {
   assembleMarkdown,
@@ -27,6 +28,7 @@ import type { JiraIssue } from "./search-issues.js";
 import { SUBMIT_GROUP_NARRATIVE_TOOL } from "../../lib/narrative-llm.js";
 
 const JIRA_BASE = "https://example.atlassian.net/browse";
+const PROMPTS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../prompts");
 
 function mockNarrativeLlm(
   handler: () => { content?: string | null; toolCalls?: Array<{ arguments: Record<string, unknown> }> },
@@ -690,6 +692,20 @@ describe("buildGroupMessage", () => {
     const msg = buildGroupMessage(group, "epic", JIRA_BASE, 1000);
     expect(msg).toContain("[Status: QA]");
     expect(msg).toContain("[Status: Code Merged]");
+  });
+});
+
+describe("narrative prompts", () => {
+  it("sprint prompt forbids bolt-on QA delivery language", () => {
+    const prompt = readFileSync(join(PROMPTS_DIR, "sprint-narrative.md"), "utf-8");
+    expect(prompt).toContain("Do NOT write delivery prose and bolt on");
+    expect(prompt).toContain("QA is validating");
+  });
+
+  it("epic prompt forbids bolt-on QA delivery language", () => {
+    const prompt = readFileSync(join(PROMPTS_DIR, "epic-narrative.md"), "utf-8");
+    expect(prompt).toContain("Do NOT write delivery prose and bolt on");
+    expect(prompt).toContain("QA is validating");
   });
 });
 
