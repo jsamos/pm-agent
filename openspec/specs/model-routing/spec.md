@@ -12,9 +12,16 @@ The system SHALL use host-agnostic logical names in `models.json` for defaults, 
 
 #### Scenario: Tool references logical name [tested]
 
-- GIVEN `models.json` sets `"generate_sprint_narrative": "sonnet-4.6"`
+- GIVEN `models.json` sets `"generate_sprint_narrative": "sonnet-4.6"` or `{ "model": "sonnet-4.6", ... }`
 - WHEN `getToolModel("generate_sprint_narrative")` is called
 - THEN it returns `"sonnet-4.6"`
+
+#### Scenario: Tool invoke settings [tested]
+
+- GIVEN `models.json` sets a tool entry to `{ "model": "sonnet-4.6", "maxTokens": 8192, "temperature": 0.3 }`
+- WHEN `getToolLlmConfig("generate_sprint_narrative")` is called
+- THEN it returns the model name and invoke settings
+- AND string tool entries fall back to default maxTokens/temperature constants
 
 #### Scenario: Agent references logical name [tested]
 

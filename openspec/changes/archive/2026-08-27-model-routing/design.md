@@ -45,9 +45,7 @@ One `context.llm` per run. Provider selection is **per call** from the explicit 
 {
   "default": "gpt-4o",
   "agents": {
-    "agent": "gpt-4o",
-    "roster": "gpt-4o-mini",
-    "sprint-rollup": "gpt-4o-mini"
+    "agent": "gpt-4o"
   },
   "tools": {
     "generate_epic_narrative": "sonnet-4.6",

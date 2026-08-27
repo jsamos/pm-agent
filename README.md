@@ -60,8 +60,16 @@ aws ssm get-parameters-by-path --path "/developer/bedrock" --recursive \
   "default": "gpt-4o",
   "agents": { "agent": "gpt-4o" },
   "tools": {
-    "generate_epic_narrative": "sonnet-4.6",
-    "generate_sprint_narrative": "sonnet-4.6"
+    "generate_epic_narrative": {
+      "model": "sonnet-4.6",
+      "maxTokens": 8192,
+      "temperature": 0.3
+    },
+    "generate_sprint_narrative": {
+      "model": "sonnet-4.6",
+      "maxTokens": 8192,
+      "temperature": 0.3
+    }
   },
   "routes": {
     "gpt-4o": { "provider": "openai", "modelId": "gpt-4o" },
@@ -70,6 +78,8 @@ aws ssm get-parameters-by-path --path "/developer/bedrock" --recursive \
 }
 ```
 
+Tool entries MAY be a string (model name only) or an object with `model`, `maxTokens`, and `temperature`. Invoke settings apply to inner narrative LLM calls; the orchestrator uses the agent/default model only.
+
 **Logical names** (`sonnet-4.6`, `gpt-4o`) are what code and config reference — not provider-specific IDs. The **`routes`** table maps each name to a provider and `modelId`:
 
 | Provider | `modelId` meaning |
@@ -77,7 +87,7 @@ aws ssm get-parameters-by-path --path "/developer/bedrock" --recursive \
 | `openai` | OpenAI API model string |
 | `bedrock` | Key in gitignored `bedrock.json` (resolved to an inference profile ARN at call time) |
 
-`createLLM` returns a **routing LLM**: one shared `context.llm` delegates each call to the correct backend based on `options.model`. The orchestrator can use `gpt-4o` while narrative tools use `sonnet-4.6` in the same run.
+`createLLM` returns a **routing LLM**: one shared `context.llm` delegates each call to the correct backend based on `options.model`. A typical multi-model run uses **gpt-4o for the orchestrator** (tool-use workflow) and **Bedrock Sonnet for narrative tools** (prose generation) — configured separately under `agents` and `tools`.
 
 See [`openspec/specs/model-routing/spec.md`](openspec/specs/model-routing/spec.md) for the full behavioral spec.
 
