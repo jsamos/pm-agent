@@ -8,6 +8,8 @@
   },
   "scripts": {
     "check": "tsx src/scripts/check.ts",
+    "bedrock:ask": "tsx src/scripts/bedrock-ask.ts",
+    "bedrock:models": "tsx src/scripts/bedrock-models.ts",
     "auth": "tsx src/scripts/auth.ts",
     "auth:force": "tsx src/scripts/auth.ts --force",
     "tools": "tsx src/scripts/list-tools.ts",

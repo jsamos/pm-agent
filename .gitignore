@@ -4,3 +4,5 @@ dist/
 output/
 src/config/jira.json
 src/config/roster.json
+src/config/bedrock.json
+.DS_Store

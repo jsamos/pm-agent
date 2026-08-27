@@ -1,0 +1,36 @@
+{
+  "region": "us-east-1",
+  "default": "sonnet-4.6",
+  "models": {
+    "haiku-4.5": {
+      "label": "Claude Haiku 4.5",
+      "bedrockModelId": "anthropic.claude-haiku-4-5-20251001-v1-0",
+      "ssmPath": "/developer/bedrock/anthropic.claude-haiku-4-5-20251001-v1-0/inference_profile_id",
+      "inferenceProfileArn": "arn:aws:bedrock:us-east-1:ACCOUNT_ID:application-inference-profile/HAIKU_PROFILE_ID"
+    },
+    "opus-4.6": {
+      "label": "Claude Opus 4.6",
+      "bedrockModelId": "anthropic.claude-opus-4-6-v1",
+      "ssmPath": "/developer/bedrock/anthropic.claude-opus-4-6-v1/inference_profile_id",
+      "inferenceProfileArn": "arn:aws:bedrock:us-east-1:ACCOUNT_ID:application-inference-profile/OPUS_4_6_PROFILE_ID"
+    },
+    "opus-4.8": {
+      "label": "Claude Opus 4.8",
+      "bedrockModelId": "anthropic.claude-opus-4-8",
+      "ssmPath": "/developer/bedrock/anthropic.claude-opus-4-8/inference_profile_id",
+      "inferenceProfileArn": "arn:aws:bedrock:us-east-1:ACCOUNT_ID:application-inference-profile/OPUS_4_8_PROFILE_ID"
+    },
+    "sonnet-4.6": {
+      "label": "Claude Sonnet 4.6",
+      "bedrockModelId": "anthropic.claude-sonnet-4-6",
+      "ssmPath": "/developer/bedrock/anthropic.claude-sonnet-4-6/inference_profile_id",
+      "inferenceProfileArn": "arn:aws:bedrock:us-east-1:ACCOUNT_ID:application-inference-profile/SONNET_4_6_PROFILE_ID"
+    },
+    "sonnet-5": {
+      "label": "Claude Sonnet 5",
+      "bedrockModelId": "anthropic.claude-sonnet-5",
+      "ssmPath": "/developer/bedrock/anthropic.claude-sonnet-5/inference_profile_id",
+      "inferenceProfileArn": "arn:aws:bedrock:us-east-1:ACCOUNT_ID:application-inference-profile/SONNET_5_PROFILE_ID"
+    }
+  }
+}

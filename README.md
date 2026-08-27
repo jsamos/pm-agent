@@ -17,6 +17,28 @@ Copy the example configs and fill in your values:
 ```bash
 cp src/config/jira.example.json src/config/jira.json
 cp src/config/roster.example.json src/config/roster.json
+cp src/config/bedrock.example.json src/config/bedrock.json
+```
+
+**`src/config/bedrock.json`** — Bedrock model map (copy from example, set ARNs for your AWS account):
+```json
+{
+  "default": "sonnet-4.6",
+  "models": {
+    "sonnet-4.6": {
+      "label": "Claude Sonnet 4.6",
+      "bedrockModelId": "anthropic.claude-sonnet-4-6",
+      "inferenceProfileArn": "arn:aws:bedrock:us-east-1:ACCOUNT:application-inference-profile/..."
+    }
+  }
+}
+```
+
+Run `npm run bedrock:models` to list keys, labels, and ARNs. Inference profile ARNs are **account-specific** — copy from SSM for the same AWS account as `AWS_PROFILE`:
+
+```bash
+aws ssm get-parameters-by-path --path "/developer/bedrock" --recursive \
+  --with-decryption --region us-east-1 --profile YOUR_PROFILE --output json
 ```
 
 **`src/config/jira.json`** — Jira connection and scope:
@@ -44,13 +66,10 @@ cp src/config/roster.example.json src/config/roster.json
 ```
 
 Create a `.env` file with your keys:
+
 ```bash
-OPENAI_API_KEY=sk-...
-OPENAI_TPM_LIMIT=30000      # optional — see LLM rate limiting below
-LLM_TOKEN_ESTIMATE=3000     # optional — pre-call token reservation when TPM limiting is enabled
-LLM_MAX_RETRIES=5            # optional — reactive 429 retries (default 5)
-SLACK_CLIENT_ID=your-slack-app-client-id
-SLACK_CLIENT_SECRET=your-slack-app-client-secret
+cp .env.example .env
+# edit .env — see placeholders and comments in .env.example
 ```
 
 ### LLM rate limiting
@@ -225,4 +244,6 @@ npm run auth -- notion           # Notion OAuth flow
 npm run auth:force -- jira       # clear tokens and re-authenticate
 npm run tools -- jira            # list available MCP tools
 npm run tools -- jira --verbose  # list tools with full parameter schemas
+npm run bedrock:models              # list Bedrock model keys and ARNs
+npm run bedrock:ask -- 'your prompt'   # send a prompt to Bedrock (AWS SSO + .env)
 ```
