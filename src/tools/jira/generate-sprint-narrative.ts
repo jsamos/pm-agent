@@ -441,18 +441,18 @@ async function callUnitNarrativeLlm(
   traceLabel: string,
   toolLlm: ToolLlmConfig,
   expected: StatusCounts,
-  issueKeys: string[],
+  issues: JiraIssue[],
 ): Promise<string> {
   return callMarkdownNarrativeLlm({
     llm,
     tracingTool: "generate_sprint_narrative",
     systemPrompt: SYSTEM_PROMPT,
-    userMessage: appendMarkdownInstructions(userMessage, expected),
+    userMessage: appendMarkdownInstructions(userMessage, expected, issues),
     model: toolLlm.model,
     traceLabel,
     maxTokens: toolLlm.maxTokens,
     temperature: toolLlm.temperature,
-    requiredIssueKeys: issueKeys,
+    requiredIssueKeys: issues.map((i) => i.key),
   });
 }
 
@@ -465,14 +465,14 @@ async function generateForGroup(
   toolLlm: ToolLlmConfig,
 ): Promise<{ groupKey: string; markdown: string }> {
   const userMessage = buildGroupMessage(group, outerKey, jiraBase, descLimit);
-  const issueKeys = collectGroupIssueKeys(group);
+  const issues = collectIssues(group);
   const markdown = await callUnitNarrativeLlm(
     llm,
     userMessage,
     group.groupKey,
     toolLlm,
     expectedSectionsFromGroup(group),
-    issueKeys,
+    issues,
   );
   return { groupKey: group.groupKey, markdown };
 }
@@ -712,14 +712,14 @@ export const generateSprintNarrativeTool: Tool = {
           unitsToGenerate.map(async (unit) => {
             const userMessage = buildEpicUnitMessage(unit, jiraBase, descLimit);
             const compositeKey = `${unit.assigneeKey}::${unit.epicKey}`;
-            const issueKeys = [...unit.done, ...unit.inProgress, ...unit.notStarted].map((i) => i.key);
+            const issues = [...unit.done, ...unit.inProgress, ...unit.notStarted];
             const markdown = await callUnitNarrativeLlm(
               context.llm,
               userMessage,
               `${unit.assigneeLabel} / ${unit.epicLabel}`,
               toolLlm,
               expectedSectionsFromUnit(unit),
-              issueKeys,
+              issues,
             );
             return { key: compositeKey, markdown };
           }),

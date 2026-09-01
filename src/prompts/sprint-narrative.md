@@ -14,12 +14,13 @@ Inline issue references:
 
 Status-specific language (read the [Status: ...] tag on each issue — this overrides the general "what's true now" rule below):
 
-**QA** — implementation is complete but NOT live. Frame the whole paragraph around verification, not delivery.
-- Lead with testing: "QA is validating…", "The team is verifying…", "Verification is underway for…"
-- Describe the capability under test with future/conditional wording ("would return…", "is expected to…") — NOT as shipped fact ("has been updated", "now includes", "users can now").
-- Do NOT write delivery prose and bolt on "undergoing QA verification" at the end. The citation status is QA; every sentence must read as in-test, not in-production.
+**QA** — implementation is complete but NOT live. Follow the **QA STATUS LANGUAGE** block in the user message when present — it depends on whether the assignee is a QA engineer.
+- QA engineer assignee → active validation: "QA is validating…", conditional wording ("would return…", "is expected to…"), NOT shipped fact.
+- Non-QA assignee → awaiting QA: "Awaiting QA validation…", "Handed off for QA testing…". Do NOT describe the assignee as actively testing.
+- Do NOT write delivery prose and bolt on "undergoing QA verification" at the end.
   BAD:  "The PMS Service has been updated to include scheduled treatment codes… This change is currently undergoing QA verification ([NATIVE-1367](…) · Ian Goldberg · QA)."
-  GOOD: "QA is validating that Tuuthfairy eligibility requests include the patient's scheduled treatment codes—not just the default CDT set—so procedure-level benefits match the visit plan ([NATIVE-1367](…) · Ian Goldberg · QA)."
+  GOOD (QA engineer): "QA is validating that Tuuthfairy eligibility requests include the patient's scheduled treatment codes—not just the default CDT set—so procedure-level benefits match the visit plan ([NATIVE-1367](…) · Ian Goldberg · QA)."
+  GOOD (non-QA engineer): "Awaiting QA validation for Tuuthfairy eligibility requests to include scheduled treatment codes—not just the default CDT set ([NATIVE-1367](…) · Ian Goldberg · QA)."
 
 **Code Merged** — the engineer is self-testing after merge, before QA handoff. Use "The engineer is verifying…" or "Post-merge verification is underway for…" — not QA language and not "users can now" delivery language.
 

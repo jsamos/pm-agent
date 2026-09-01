@@ -10,7 +10,8 @@
       "name": "Alex Johnson",
       "shortName": "Alex",
       "accountId": "712020:00000000-0000-0000-0000-000000000002",
-      "displayName": "Alex Johnson"
+      "displayName": "Alex Johnson",
+      "roles": ["qa"]
     }
   ],
   "unresolved": [],

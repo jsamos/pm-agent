@@ -24,26 +24,33 @@ function saveRoster(roster: RosterFile): void {
 
 export const writeRosterTool: Tool = {
   name: "write_roster",
-  description: "Add or remove a person from the team roster. Action 'add' requires name, accountId, and displayName. Action 'remove' requires accountId.",
+  description:
+    "Add or remove a person from the team roster. Action 'add' requires name, accountId, and displayName. Optional roles (e.g. [\"qa\"] for QA engineers). Action 'set_roles' updates roles for an existing entry.",
   parameters: {
     type: "object",
     properties: {
-      action: { type: "string", enum: ["add", "remove"], description: "Whether to add or remove" },
+      action: { type: "string", enum: ["add", "remove", "set_roles"], description: "Whether to add, remove, or update roles" },
       name: { type: "string", description: "Input name (what the user called them)" },
       shortName: { type: "string", description: "Short display name (first name)" },
       accountId: { type: "string", description: "Jira account ID" },
       displayName: { type: "string", description: "Full display name from Jira" },
+      roles: {
+        type: "array",
+        items: { type: "string" },
+        description: 'Optional roles — e.g. ["qa"] for QA engineers',
+      },
     },
     required: ["action", "accountId"],
   },
 
   async execute(args, context) {
-    const { action, name, shortName, accountId, displayName } = args as {
-      action: "add" | "remove";
+    const { action, name, shortName, accountId, displayName, roles } = args as {
+      action: "add" | "remove" | "set_roles";
       name?: string;
       shortName?: string;
       accountId: string;
       displayName?: string;
+      roles?: string[];
     };
 
     const roster = loadRoster();
@@ -59,6 +66,7 @@ export const writeRosterTool: Tool = {
         shortName: shortName || (name || "").split(" ")[0],
         accountId,
         displayName: displayName || name || accountId,
+        ...(roles?.length ? { roles } : {}),
       };
       roster.resolved.push(entry);
       saveRoster(roster);
@@ -73,6 +81,20 @@ export const writeRosterTool: Tool = {
       }
       saveRoster(roster);
       return { success: true, message: `Removed`, total: roster.resolved.length };
+    }
+
+    if (action === "set_roles") {
+      const entry = roster.resolved.find((r) => r.accountId === accountId);
+      if (!entry) {
+        return { success: false, message: `Account ${accountId} not found in roster` };
+      }
+      entry.roles = roles ?? [];
+      saveRoster(roster);
+      return {
+        success: true,
+        message: `Updated roles for ${entry.displayName}`,
+        roles: entry.roles,
+      };
     }
 
     return { success: false, message: `Unknown action: ${action}` };

@@ -5,6 +5,8 @@
 import type { LLM } from "./llm.js";
 import { trace } from "./agent-loop.js";
 import { NARRATIVE_HEADINGS } from "./narrative-headings.js";
+import { buildQaLanguageHints } from "./roster-roles.js";
+import type { JiraIssue } from "../tools/jira/search-issues.js";
 
 export type StatusField = "done" | "inProgress" | "notStarted";
 
@@ -52,8 +54,18 @@ export function buildMarkdownExample(counts: StatusCounts): string {
   return lines.join("\n");
 }
 
-export function appendMarkdownInstructions(userMessage: string, counts: StatusCounts): string {
-  return `${userMessage}\n\n${buildMarkdownExample(counts)}`;
+export function appendMarkdownInstructions(
+  userMessage: string,
+  counts: StatusCounts,
+  issues?: JiraIssue[],
+): string {
+  const parts = [userMessage];
+  if (issues?.length) {
+    const hints = buildQaLanguageHints(issues);
+    if (hints) parts.push(hints);
+  }
+  parts.push(buildMarkdownExample(counts));
+  return parts.join("\n\n");
 }
 
 /** Split unit markdown into status-section bodies (without ### headings). */

@@ -19,6 +19,7 @@ import {
   buildEpicMarkdownExample,
   callMarkdownNarrativeLlm,
 } from "../../lib/narrative-markdown.js";
+import { buildQaLanguageHints } from "../../lib/roster-roles.js";
 import { NARRATIVE_MESSAGE_LABELS } from "../../lib/narrative-headings.js";
 import { extractDiffFromLog, formatDiffBlock } from "./format-diff.js";
 
@@ -146,13 +147,18 @@ export const generateEpicNarrativeTool: Tool = {
     }
 
     const expected = { done: done.length, inProgress: inProgress.length, notStarted: notStarted.length };
-    const allIssueKeys = [...done, ...inProgress, ...notStarted].map((i) => i.key);
-    const userMessage = `${dataSections.join("\n\n")}\n\n${buildEpicMarkdownExample(expected)}`;
+    const allIssues = [...done, ...inProgress, ...notStarted];
+    const messageParts = [dataSections.join("\n\n")];
+    const qaHints = buildQaLanguageHints(allIssues);
+    if (qaHints) messageParts.push(qaHints);
+    messageParts.push(buildEpicMarkdownExample(expected));
+    const userMessage = messageParts.join("\n\n");
+    const allIssueKeys = allIssues.map((i) => i.key);
 
     const searchEntry = [...log].reverse().find((tc) => tc.tool === "search_jira_issues");
     const searchResult = searchEntry?.result as { issues?: JiraIssue[] } | undefined;
-    const allIssues = searchResult?.issues || [];
-    const epicIssue = allIssues.find((i) => i.issueType === "Epic");
+    const searchIssues = searchResult?.issues || [];
+    const epicIssue = searchIssues.find((i) => i.issueType === "Epic");
 
     const bodyMarkdown = await callMarkdownNarrativeLlm({
       llm: context.llm,

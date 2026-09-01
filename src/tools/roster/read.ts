@@ -12,6 +12,8 @@ export interface RosterEntry {
   shortName: string;
   accountId: string;
   displayName: string;
+  /** Optional roles — e.g. "qa" for QA engineers (see roster-roles.ts). */
+  roles?: string[];
 }
 
 export interface RosterFile {

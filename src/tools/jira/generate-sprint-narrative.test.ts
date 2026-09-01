@@ -697,16 +697,15 @@ describe("buildGroupMessage", () => {
 });
 
 describe("narrative prompts", () => {
-  it("sprint prompt requires markdown output", () => {
+  it("sprint prompt references role-aware QA language", () => {
     const prompt = readFileSync(join(PROMPTS_DIR, "sprint-narrative.md"), "utf-8");
-    expect(prompt).toContain("Return markdown only");
-    expect(prompt).toContain("Do NOT write delivery prose and bolt on");
+    expect(prompt).toContain("QA STATUS LANGUAGE");
     expect(prompt).toContain("QA is validating");
   });
 
-  it("epic prompt requires markdown output", () => {
+  it("epic prompt references role-aware QA language", () => {
     const prompt = readFileSync(join(PROMPTS_DIR, "epic-narrative.md"), "utf-8");
-    expect(prompt).toContain("Return markdown only");
+    expect(prompt).toContain("QA STATUS LANGUAGE");
     expect(prompt).toContain("QA is validating");
   });
 });
