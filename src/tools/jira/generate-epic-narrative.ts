@@ -3,8 +3,7 @@
  * Reads the last group_issues result from toolCallLog and generates
  * a prose narrative for the epic using a dedicated LLM call.
  *
- * Architecture: LLM writes prose with inline issue citations (as JSON).
- * Code assembles the final markdown from section paragraphs.
+ * Architecture: LLM returns markdown; code assembles the page header.
  */
 
 import { readFileSync } from "node:fs";
@@ -12,36 +11,19 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Tool } from "../registry.js";
 import type { ExecutionContext } from "../../lib/context.js";
-import type { GroupIssuesResult, IssueGroup } from "./group-issues.js";
+import type { GroupIssuesResult } from "./group-issues.js";
 import type { JiraIssue } from "./search-issues.js";
 import { getToolLlmConfig } from "../../lib/models.js";
 import { resolveDescriptionLimit } from "../../lib/narrative-config.js";
 import {
-  callStructuredNarrativeLlm,
-  parseNarrativeResponse,
-  SUBMIT_NARRATIVE_TOOL,
-  isNarrativeComplete,
-} from "../../lib/narrative-llm.js";
+  buildEpicMarkdownExample,
+  callMarkdownNarrativeLlm,
+} from "../../lib/narrative-markdown.js";
 import { NARRATIVE_MESSAGE_LABELS } from "../../lib/narrative-headings.js";
 import { extractDiffFromLog, formatDiffBlock } from "./format-diff.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT = readFileSync(resolve(__dirname, "../../prompts/epic-narrative.md"), "utf-8").trim();
-
-interface ClassifiedIssue {
-  key: string;
-  summary: string;
-  assignee: string | null;
-  description: string | null;
-}
-
-export interface EpicNarrativeParsed {
-  sectionType?: string;
-  section?: string;
-  done?: string[];
-  inProgress?: string[];
-  notStarted?: string[];
-}
 
 export interface EpicHeader {
   key: string;
@@ -50,9 +32,36 @@ export interface EpicHeader {
   assignee?: string | null;
 }
 
+export function buildEpicMarkdownExample(counts: {
+  done: number;
+  inProgress: number;
+  notStarted: number;
+}): string {
+  const lines = [
+    "--- EXAMPLE OUTPUT (use this structure; omit sections with no issues) ---",
+    "",
+    "## Outcome",
+    "",
+    "<2-4 sentences on what this epic achieves>",
+    "",
+  ];
+
+  if (counts.done > 0) {
+    lines.push("## What's Been Done", "", "<paragraph with citations>", "");
+  }
+  if (counts.inProgress > 0) {
+    lines.push("## What's In Motion", "", "<paragraph with citations>", "");
+  }
+  if (counts.notStarted > 0) {
+    lines.push("## What's Not Started", "", "<paragraph with citations>", "");
+  }
+
+  lines.push("Return markdown only. No JSON. No preamble.");
+  return lines.join("\n");
+}
+
 export function assembleEpicMarkdown(
-  parsed: EpicNarrativeParsed,
-  counts: { done: number; inProgress: number; notStarted: number },
+  bodyMarkdown: string,
   header?: EpicHeader,
 ): string {
   const md: string[] = [];
@@ -64,21 +73,8 @@ export function assembleEpicMarkdown(
     md.push(link + assigneeLine);
   }
 
-  if (parsed.section) {
-    const heading = parsed.sectionType === "unlock" ? "Unlock" : "Outcome";
-    md.push(`## ${heading}\n\n${parsed.section}`);
-  }
-
-  if (parsed.done && parsed.done.length > 0 && counts.done > 0) {
-    md.push(`## What's Been Done\n\n${parsed.done.join("\n\n")}`);
-  }
-
-  if (parsed.inProgress && parsed.inProgress.length > 0 && counts.inProgress > 0) {
-    md.push(`## What's In Motion\n\n${parsed.inProgress.join("\n\n")}`);
-  }
-
-  if (parsed.notStarted && parsed.notStarted.length > 0 && counts.notStarted > 0) {
-    md.push(`## What's Not Started\n\n${parsed.notStarted.join("\n\n")}`);
+  if (bodyMarkdown.trim()) {
+    md.push(bodyMarkdown.trim());
   }
 
   return md.join("\n\n---\n\n");
@@ -116,7 +112,7 @@ export const generateEpicNarrativeTool: Tool = {
         return grouped.groups.find((g) => g.groupKey === key)?.issues || [];
       }
       return grouped.groups.flatMap(
-        (g) => g.subGroups?.find((s) => s.groupKey === key)?.issues || []
+        (g) => g.subGroups?.find((s) => s.groupKey === key)?.issues || [],
       );
     };
 
@@ -133,7 +129,11 @@ export const generateEpicNarrativeTool: Tool = {
       return `- ${i.key} (${i.assignee || "Unassigned"}) [Status: ${i.status}]: ${i.summary}\n  ${desc}`;
     };
 
-    const dataSections: string[] = [`JIRA_BASE: ${jiraBase}`];
+    const dataSections: string[] = [
+      "Write epic narrative prose.",
+      `JIRA_BASE: ${jiraBase}`,
+      "",
+    ];
 
     if (done.length > 0) {
       dataSections.push(`${NARRATIVE_MESSAGE_LABELS.done} (${done.length}):\n${done.map(formatIssueData).join("\n")}`);
@@ -145,30 +145,29 @@ export const generateEpicNarrativeTool: Tool = {
       dataSections.push(`${NARRATIVE_MESSAGE_LABELS.notStarted} (${notStarted.length}):\n${notStarted.map(formatIssueData).join("\n")}`);
     }
 
-    const userMessage = dataSections.join("\n\n");
     const expected = { done: done.length, inProgress: inProgress.length, notStarted: notStarted.length };
+    const allIssueKeys = [...done, ...inProgress, ...notStarted].map((i) => i.key);
+    const userMessage = `${dataSections.join("\n\n")}\n\n${buildEpicMarkdownExample(expected)}`;
 
     const searchEntry = [...log].reverse().find((tc) => tc.tool === "search_jira_issues");
     const searchResult = searchEntry?.result as { issues?: JiraIssue[] } | undefined;
     const allIssues = searchResult?.issues || [];
     const epicIssue = allIssues.find((i) => i.issueType === "Epic");
 
-    const parsed = await callStructuredNarrativeLlm({
+    const bodyMarkdown = await callMarkdownNarrativeLlm({
       llm: context.llm,
       tracingTool: "generate_epic_narrative",
       systemPrompt: SYSTEM_PROMPT,
       userMessage,
-      tools: [SUBMIT_NARRATIVE_TOOL],
       model: toolLlm.model,
       traceLabel: epicIssue?.key || "epic",
       maxTokens: toolLlm.maxTokens,
       temperature: toolLlm.temperature,
-      parseResponse: parseNarrativeResponse,
-      isComplete: (p) => isNarrativeComplete(p, expected),
+      requiredIssueKeys: allIssueKeys,
     });
 
-    if (!parsed.section && !parsed.done?.length && !parsed.inProgress?.length && !parsed.notStarted?.length) {
-      return { narrative: "", summary: "Narrative generation failed — no structured output." };
+    if (!bodyMarkdown.trim()) {
+      return { narrative: "", summary: "Narrative generation failed — no markdown output." };
     }
 
     const buildEntry = [...log].reverse().find((tc) => tc.tool === "build_epic_jql");
@@ -183,11 +182,7 @@ export const generateEpicNarrativeTool: Tool = {
       ? { key: epicIssue.key, summary: epicIssue.summary, jiraBase, assignee: filteredAssignee || null }
       : undefined;
 
-    let narrative = assembleEpicMarkdown(parsed, {
-      done: done.length,
-      inProgress: inProgress.length,
-      notStarted: notStarted.length,
-    }, header);
+    let narrative = assembleEpicMarkdown(bodyMarkdown, header);
 
     const diff = log ? extractDiffFromLog(log) : null;
     if (diff) {

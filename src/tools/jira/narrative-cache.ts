@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { cacheAppend, cacheReadAll, cacheFilter, cacheClear, cacheRemoveBefore, cacheCompact, cacheCount } from "../../lib/cache.js";
 import type { GroupNarrative } from "./generate-sprint-narrative.js";
 import type { IssueGroup } from "./group-issues.js";
+import { legacyProseToMarkdown } from "../../lib/narrative-markdown.js";
 
 const CACHE_KEY = "narrative_cache";
 
@@ -17,8 +18,18 @@ export interface GroupSection {
   groupKey: string;
   groupLabel: string;
   issueKeys: string[];
-  prose: GroupNarrative;
+  /** Unit markdown returned by the narrative LLM (status ### sections). */
+  markdown: string;
   renderedMarkdown: string;
+  /** @deprecated Legacy structured cache entries — normalized on read. */
+  prose?: GroupNarrative;
+}
+
+/** Read unit markdown from a cache section (supports legacy structured prose). */
+export function resolveSectionMarkdown(section: GroupSection): string {
+  if (section.markdown?.trim()) return section.markdown;
+  if (section.prose) return legacyProseToMarkdown(section.prose);
+  return "";
 }
 
 export interface NarrativeCacheEntry {

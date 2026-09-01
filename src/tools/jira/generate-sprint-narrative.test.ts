@@ -25,40 +25,41 @@ import {
 import { saveNarrativeCache, computeThread } from "./narrative-cache.js";
 import type { IssueGroup, GroupIssuesResult } from "./group-issues.js";
 import type { JiraIssue } from "./search-issues.js";
-import { SUBMIT_NARRATIVE_TOOL } from "../../lib/narrative-llm.js";
 
 const JIRA_BASE = "https://example.atlassian.net/browse";
 const PROMPTS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../prompts");
 
 function mockNarrativeLlm(
-  handler: () => { content?: string | null; toolCalls?: Array<{ arguments: Record<string, unknown> }> },
+  handler: () => { content?: string | null },
 ) {
   return {
-    generate: vi.fn(),
-    generateWithTools: vi.fn(async () => {
+    generate: vi.fn(async () => {
       const result = handler();
-      if (result.toolCalls) {
-        return {
-          content: result.content ?? null,
-          toolCalls: result.toolCalls.map((tc, idx) => ({
-            id: `tool-${idx + 1}`,
-            name: SUBMIT_NARRATIVE_TOOL.name,
-            arguments: tc.arguments,
-          })),
-          finishReason: "tool_calls" as const,
-        };
-      }
       return {
         content: result.content ?? null,
         toolCalls: [],
         finishReason: "stop" as const,
       };
     }),
+    generateWithTools: vi.fn(),
   };
 }
 
-function narrativeToolResponse(args: Record<string, unknown>) {
-  return { toolCalls: [{ arguments: args }] };
+function narrativeMarkdownResponse(args: Record<string, unknown>) {
+  const parts: string[] = [];
+  if (args.done) {
+    const text = Array.isArray(args.done) ? args.done.join("\n\n") : String(args.done);
+    parts.push(`### What's Been Done\n\n${text}`);
+  }
+  if (args.inProgress) {
+    const text = Array.isArray(args.inProgress) ? args.inProgress.join("\n\n") : String(args.inProgress);
+    parts.push(`### What's In Motion\n\n${text}`);
+  }
+  if (args.notStarted) {
+    const text = Array.isArray(args.notStarted) ? args.notStarted.join("\n\n") : String(args.notStarted);
+    parts.push(`### Not Started\n\n${text}`);
+  }
+  return { content: parts.join("\n\n") };
 }
 
 function makeIssue(key: string, overrides: Partial<JiraIssue> = {}): JiraIssue {
@@ -696,15 +697,16 @@ describe("buildGroupMessage", () => {
 });
 
 describe("narrative prompts", () => {
-  it("sprint prompt forbids bolt-on QA delivery language", () => {
+  it("sprint prompt requires markdown output", () => {
     const prompt = readFileSync(join(PROMPTS_DIR, "sprint-narrative.md"), "utf-8");
+    expect(prompt).toContain("Return markdown only");
     expect(prompt).toContain("Do NOT write delivery prose and bolt on");
     expect(prompt).toContain("QA is validating");
   });
 
-  it("epic prompt forbids bolt-on QA delivery language", () => {
+  it("epic prompt requires markdown output", () => {
     const prompt = readFileSync(join(PROMPTS_DIR, "epic-narrative.md"), "utf-8");
-    expect(prompt).toContain("Do NOT write delivery prose and bolt on");
+    expect(prompt).toContain("Return markdown only");
     expect(prompt).toContain("QA is validating");
   });
 });
@@ -728,10 +730,11 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
         llm: mockNarrativeLlm(() => {
           callCount.n++;
           const groupIdx = callCount.n - 1;
-          const key = groups[groupIdx]?.groupKey ?? "unknown";
-          return narrativeToolResponse({
-            groupKey: key,
-            done: [`Prose for ${key}.`],
+          const group = groups[groupIdx];
+          const issueKey = group?.subGroups?.[0]?.issues[0]?.key ?? "X-0";
+          const key = group?.groupKey ?? "unknown";
+          return narrativeMarkdownResponse({
+            done: `Prose for ${key} ([${issueKey}](${JIRA_BASE}/${issueKey}) · Alice · Done).`,
           });
         }),
       },
@@ -749,10 +752,10 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
     const { context } = makeContext(groups);
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
 
-    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(3);
-    expect((result as any).narrative).toContain("Prose for PROJ-1.");
-    expect((result as any).narrative).toContain("Prose for PROJ-2.");
-    expect((result as any).narrative).toContain("Prose for PROJ-3.");
+    expect(context.llm.generate).toHaveBeenCalledTimes(3);
+    expect((result as any).narrative).toContain("Prose for PROJ-1");
+    expect((result as any).narrative).toContain("Prose for PROJ-2");
+    expect((result as any).narrative).toContain("Prose for PROJ-3");
   });
 
   it("handles individual group parse failures gracefully", async () => {
@@ -773,13 +776,16 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() => {
         callN++;
-        if (callN === 1) return { content: "not valid json at all" };
-        return narrativeToolResponse({ groupKey: "PROJ-2", done: ["Beta works."] });
+        // First attempt for each group is empty; retry succeeds only for the second group.
+        if (callN === 1 || callN === 3) return { content: "" };
+        return narrativeMarkdownResponse({
+          done: "Beta works. ([X-2](https://example.atlassian.net/browse/X-2) · Alice · Done).",
+        });
       }),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
-    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(3);
+    expect(context.llm.generate).toHaveBeenCalledTimes(3);
     expect((result as any).narrative).toContain("Beta works.");
     expect((result as any).narrative).toContain("_No narrative generated._");
   });
@@ -806,11 +812,8 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
       }],
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({
-          groupKey: "Alice Martin",
-          notStarted: [
-            'PreCheck will show "No insurance information on file" instead of a misleading field error.',
-          ],
+        narrativeMarkdownResponse({
+          notStarted: 'PreCheck will show "No insurance information on file" instead of a misleading field error. ([X-1](https://example.atlassian.net/browse/X-1) · Alice Martin · Open).',
         }),
       ),
     };
@@ -841,12 +844,14 @@ describe("generateSprintNarrativeTool.execute (parallel)", () => {
       ],
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({ groupKey: "Alice Martin", done: ["Alice delivered."] }),
+        narrativeMarkdownResponse({
+          done: "Alice delivered. ([X-1](https://example.atlassian.net/browse/X-1) · Alice Martin · Done).",
+        }),
       ),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
-    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(1);
+    expect(context.llm.generate).toHaveBeenCalledTimes(1);
     expect((result as any).narrative).toContain("Alice delivered.");
   });
 });
@@ -965,11 +970,11 @@ describe("assembleThreeLevelMarkdown", () => {
     };
 
     const units = flattenToEpicUnits(grouped);
-    const proseMap = new Map<string, GroupNarrative>();
-    proseMap.set("Alice::PROJ-50", { groupKey: "Alice::PROJ-50", done: ["Clean claims delivered."] });
-    proseMap.set("Alice::PROJ-60", { groupKey: "Alice::PROJ-60", inProgress: ["Eligibility in progress."] });
+    const markdownMap = new Map<string, string>();
+    markdownMap.set("Alice::PROJ-50", "### What's Been Done\n\nClean claims delivered.");
+    markdownMap.set("Alice::PROJ-60", "### What's In Motion\n\nEligibility in progress.");
 
-    const result = assembleThreeLevelMarkdown(grouped, units, proseMap, JIRA_BASE);
+    const result = assembleThreeLevelMarkdown(grouped, units, markdownMap, JIRA_BASE);
 
     expect(result.markdown).toContain("## Alice");
     expect(result.markdown).toContain("### What's Been Done");
@@ -1003,10 +1008,10 @@ describe("assembleThreeLevelMarkdown", () => {
     };
 
     const units = flattenToEpicUnits(grouped);
-    const proseMap = new Map<string, GroupNarrative>();
-    proseMap.set("Bob::_no_epic_", { groupKey: "Bob::_no_epic_", done: ["Standalone work."] });
+    const markdownMap = new Map<string, string>();
+    markdownMap.set("Bob::_no_epic_", "### What's Been Done\n\nStandalone work.");
 
-    const result = assembleThreeLevelMarkdown(grouped, units, proseMap, JIRA_BASE);
+    const result = assembleThreeLevelMarkdown(grouped, units, markdownMap, JIRA_BASE);
     expect(result.markdown).toContain("**Other Work**");
     expect(result.markdown).toContain("Standalone work.");
   });
@@ -1198,7 +1203,9 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       ],
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({ groupKey: "PROJ-2", done: ["Fresh Beta prose."] }),
+        narrativeMarkdownResponse({
+          done: "Fresh Beta prose. ([X-2](https://example.atlassian.net/browse/X-2) · Alice · Done) ([X-3](https://example.atlassian.net/browse/X-3) · Alice · Done).",
+        }),
       ),
     };
 
@@ -1206,7 +1213,7 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
     const narrative = (result as any).narrative as string;
 
     // Only 1 LLM call — for PROJ-2 (which has the new X-3 ticket)
-    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(1);
+    expect(context.llm.generate).toHaveBeenCalledTimes(1);
 
     // PROJ-1 uses cached prose
     expect(narrative).toContain("Cached Alpha prose.");
@@ -1273,16 +1280,17 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() => {
         callN++;
-        return narrativeToolResponse({
-          groupKey: callN === 1 ? "PROJ-2" : "PROJ-4",
-          done: [`Fresh group ${callN}.`],
+        return narrativeMarkdownResponse({
+          done: callN === 1
+            ? "Fresh group 1. ([X-2](https://example.atlassian.net/browse/X-2) · Alice · Done) ([X-6](https://example.atlassian.net/browse/X-6) · Alice · Done)."
+            : "Fresh group 2. ([X-4](https://example.atlassian.net/browse/X-4) · Alice · Done).",
         });
       }),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
 
-    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(2);
+    expect(context.llm.generate).toHaveBeenCalledTimes(2);
     expect((result as any).summary).toContain("2 LLM calls");
     expect((result as any).summary).toContain("3 reused from cache");
   });
@@ -1310,12 +1318,14 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() => {
         callN++;
-        return narrativeToolResponse({ groupKey: "PROJ-1", done: ["Fresh Alpha."] });
+        return narrativeMarkdownResponse({
+          done: "Fresh Alpha. ([X-1](https://example.atlassian.net/browse/X-1) · Alice · Done).",
+        });
       }),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
-    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(1);
+    expect(context.llm.generate).toHaveBeenCalledTimes(1);
     expect((result as any).narrative).toContain("Fresh Alpha.");
   });
 
@@ -1351,13 +1361,15 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       ],
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({ groupKey: "Alice", done: ["Alice fresh."] }),
+        narrativeMarkdownResponse({
+          done: "Alice fresh. ([X-1](https://example.atlassian.net/browse/X-1) · Alice · Done).",
+        }),
       ),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
     // Cache didn't match (different groupBy) → full regeneration
-    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(1);
+    expect(context.llm.generate).toHaveBeenCalledTimes(1);
     expect((result as any).narrative).toContain("Alice fresh.");
   });
 
@@ -1419,7 +1431,9 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
       ],
       config: { issueLinkBase: JIRA_BASE },
       llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({ groupKey: "PROJ-NEW", done: ["Fresh new epic prose."] }),
+        narrativeMarkdownResponse({
+          done: "Fresh new epic prose. ([X-1](https://example.atlassian.net/browse/X-1) · Alice · Done).",
+        }),
       ),
     };
 
@@ -1427,7 +1441,7 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
     const narrative = (result as any).narrative as string;
 
     // PROJ-1 unchanged; PROJ-NEW is new; _no_epic_ is gone (no LLM call for it)
-    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(1);
+    expect(context.llm.generate).toHaveBeenCalledTimes(1);
     expect(narrative).toContain("Cached Alpha.");
     expect(narrative).toContain("Fresh new epic prose.");
     expect(narrative).not.toContain("Standalone prose.");
@@ -1459,21 +1473,26 @@ describe("generateSprintNarrativeTool.execute (selective regeneration)", () => {
     ];
 
     // No jira_search_snapshots diff entry — simulates "full"/"regenerate" override
+    let callN = 0;
     const context = {
       toolCallLog: [
         { tool: "search_jira_issues", args: {}, result: { jql: JQL, issues: [makeIssue("X-1"), makeIssue("X-2")] } },
         { tool: "group_issues", args: {}, result: { groups, groupBy: ["epic", "status"], dropped: 0, summary: "test" } as GroupIssuesResult },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: mockNarrativeLlm(() =>
-        narrativeToolResponse({ groupKey: "PROJ-1", done: ["Fresh prose."] }),
-      ),
+      llm: mockNarrativeLlm(() => {
+        callN++;
+        const key = callN === 1 ? "X-1" : "X-2";
+        return narrativeMarkdownResponse({
+          done: `Fresh prose. ([${key}](https://example.atlassian.net/browse/${key}) · Alice · Done).`,
+        });
+      }),
     };
 
     await generateSprintNarrativeTool.execute!({}, context as any);
 
     // Both groups regenerated — cache ignored because no diff = changedKeys is null = canReuse is false
-    expect(context.llm.generateWithTools).toHaveBeenCalledTimes(2);
+    expect(context.llm.generate).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -1550,11 +1569,11 @@ describe("generateSprintNarrativeTool.execute (idempotent)", () => {
         },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: mockNarrativeLlm(() => narrativeToolResponse({ groupKey: "unused" })),
+      llm: mockNarrativeLlm(() => narrativeMarkdownResponse({ done: "unused" })),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
-    expect(context.llm.generateWithTools).not.toHaveBeenCalled();
+    expect(context.llm.generate).not.toHaveBeenCalled();
     expect((result as any).narrative).toBe(priorResult.narrative);
     expect((result as any).summary).toContain("reused");
   });
@@ -1624,11 +1643,11 @@ describe("generateSprintNarrativeTool.execute (removed group)", () => {
         },
       ],
       config: { issueLinkBase: JIRA_BASE },
-      llm: mockNarrativeLlm(() => narrativeToolResponse({ groupKey: "unused" })),
+      llm: mockNarrativeLlm(() => narrativeMarkdownResponse({ done: "unused" })),
     };
 
     const result = await generateSprintNarrativeTool.execute!({}, context as any);
-    expect(context.llm.generateWithTools).not.toHaveBeenCalled();
+    expect(context.llm.generate).not.toHaveBeenCalled();
     expect((result as any).narrative).toContain("Alpha cached prose.");
     expect((result as any).narrative).not.toContain("Removed Epic");
     expect((result as any).narrative).not.toContain("Old cached prose.");

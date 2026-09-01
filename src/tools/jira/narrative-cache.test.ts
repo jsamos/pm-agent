@@ -33,6 +33,7 @@ function makeEntry(overrides: Partial<NarrativeCacheEntry> = {}): NarrativeCache
         groupLabel: "Alpha",
         issueKeys: ["X-1", "X-2"],
         prose: { groupKey: "PROJ-1", done: ["Alpha delivered."] },
+        markdown: "## What's Been Done\n\nAlpha delivered.",
         renderedMarkdown: "## Alpha\n\nAlpha delivered.",
       },
     ],

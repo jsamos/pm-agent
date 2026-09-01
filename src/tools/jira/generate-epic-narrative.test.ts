@@ -1,105 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { assembleEpicMarkdown, generateEpicNarrativeTool, type EpicNarrativeParsed, type EpicHeader } from "./generate-epic-narrative.js";
+import { assembleEpicMarkdown, generateEpicNarrativeTool, type EpicHeader } from "./generate-epic-narrative.js";
 import type { ExecutionContext } from "../../lib/context.js";
 import type { ToolCallEntry } from "../../lib/agent-loop.js";
 import type { JiraIssue } from "./search-issues.js";
 
 describe("assembleEpicMarkdown", () => {
-  it("renders all sections when data and prose are present", () => {
-    const parsed: EpicNarrativeParsed = {
-      sectionType: "outcome",
-      section: "This epic delivers X.",
-      done: ["Completed work paragraph."],
-      inProgress: ["Active work paragraph."],
-      notStarted: ["Pending work paragraph."],
-    };
+  it("renders header and body markdown", () => {
+    const body = [
+      "## Outcome",
+      "",
+      "This epic delivers X.",
+      "",
+      "## What's Been Done",
+      "",
+      "Completed work paragraph.",
+    ].join("\n");
 
-    const md = assembleEpicMarkdown(parsed, { done: 3, inProgress: 2, notStarted: 1 });
+    const md = assembleEpicMarkdown(body);
 
     expect(md).toContain("## Outcome\n\nThis epic delivers X.");
     expect(md).toContain("## What's Been Done\n\nCompleted work paragraph.");
-    expect(md).toContain("## What's In Motion\n\nActive work paragraph.");
-    expect(md).toContain("## What's Not Started\n\nPending work paragraph.");
-  });
-
-  it("uses Unlock heading when sectionType is unlock", () => {
-    const parsed: EpicNarrativeParsed = {
-      sectionType: "unlock",
-      section: "Technical capability.",
-    };
-
-    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 });
-    expect(md).toContain("## Unlock\n\nTechnical capability.");
-  });
-
-  it("defaults to Outcome heading for unknown sectionType", () => {
-    const parsed: EpicNarrativeParsed = {
-      sectionType: "something_else",
-      section: "Description.",
-    };
-
-    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 });
-    expect(md).toContain("## Outcome\n\nDescription.");
-  });
-
-  it("omits done section when no done issues exist", () => {
-    const parsed: EpicNarrativeParsed = {
-      done: ["This should not appear."],
-      inProgress: ["Active work."],
-    };
-
-    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 2, notStarted: 0 });
-    expect(md).not.toContain("What's Been Done");
-    expect(md).toContain("What's In Motion");
-  });
-
-  it("omits inProgress section when no in-progress issues exist", () => {
-    const parsed: EpicNarrativeParsed = {
-      done: ["Done work."],
-      inProgress: ["This should not appear."],
-    };
-
-    const md = assembleEpicMarkdown(parsed, { done: 5, inProgress: 0, notStarted: 0 });
-    expect(md).toContain("What's Been Done");
-    expect(md).not.toContain("What's In Motion");
-  });
-
-  it("omits section when LLM returns empty array", () => {
-    const parsed: EpicNarrativeParsed = {
-      done: [],
-      inProgress: ["Active."],
-    };
-
-    const md = assembleEpicMarkdown(parsed, { done: 3, inProgress: 1, notStarted: 0 });
-    expect(md).not.toContain("What's Been Done");
-    expect(md).toContain("What's In Motion");
-  });
-
-  it("joins multiple paragraphs with double newlines", () => {
-    const parsed: EpicNarrativeParsed = {
-      done: ["First paragraph.", "Second paragraph."],
-    };
-
-    const md = assembleEpicMarkdown(parsed, { done: 5, inProgress: 0, notStarted: 0 });
-    expect(md).toContain("First paragraph.\n\nSecond paragraph.");
-  });
-
-  it("returns empty string when nothing to render", () => {
-    const md = assembleEpicMarkdown({}, { done: 0, inProgress: 0, notStarted: 0 });
-    expect(md).toBe("");
-  });
-
-  it("separates sections with horizontal rules", () => {
-    const parsed: EpicNarrativeParsed = {
-      sectionType: "outcome",
-      section: "Overview.",
-      done: ["Done."],
-    };
-
-    const md = assembleEpicMarkdown(parsed, { done: 1, inProgress: 0, notStarted: 0 });
-    expect(md).toContain("---");
-    const parts = md.split("\n\n---\n\n");
-    expect(parts).toHaveLength(2);
   });
 
   it("renders H1 header with epic link when header is provided", () => {
@@ -108,12 +28,8 @@ describe("assembleEpicMarkdown", () => {
       summary: "Notification System",
       jiraBase: "https://example.atlassian.net/browse",
     };
-    const parsed: EpicNarrativeParsed = {
-      sectionType: "outcome",
-      section: "Delivers notifications.",
-    };
 
-    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 }, header);
+    const md = assembleEpicMarkdown("## Outcome\n\nDelivers notifications.", header);
     expect(md).toContain("# Notification System");
     expect(md).toContain("[PROJ-100](https://example.atlassian.net/browse/PROJ-100)");
     expect(md).not.toContain("Assignee");
@@ -126,41 +42,28 @@ describe("assembleEpicMarkdown", () => {
       jiraBase: "https://example.atlassian.net/browse",
       assignee: "Alice Martin",
     };
-    const parsed: EpicNarrativeParsed = { section: "Overview." };
 
-    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 }, header);
+    const md = assembleEpicMarkdown("## Unlock\n\nOverview.", header);
     expect(md).toContain("# Data Pipeline");
     expect(md).toContain("[PROJ-200]");
     expect(md).toContain("**Assignee:** Alice Martin");
   });
 
-  it("omits assignee line when assignee is null", () => {
-    const header: EpicHeader = {
-      key: "PROJ-300",
-      summary: "Search Feature",
-      jiraBase: "https://example.atlassian.net/browse",
-      assignee: null,
-    };
-    const parsed: EpicNarrativeParsed = { section: "Overview." };
-
-    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 }, header);
-    expect(md).toContain("# Search Feature");
-    expect(md).not.toContain("Assignee");
+  it("returns empty string when nothing to render", () => {
+    expect(assembleEpicMarkdown("")).toBe("");
   });
 
-  it("renders without header when header is omitted", () => {
-    const parsed: EpicNarrativeParsed = {
-      sectionType: "outcome",
-      section: "Overview.",
+  it("separates header and body with horizontal rules", () => {
+    const header: EpicHeader = {
+      key: "PROJ-100",
+      summary: "Notification System",
+      jiraBase: "https://example.atlassian.net/browse",
     };
 
-    const md = assembleEpicMarkdown(parsed, { done: 0, inProgress: 0, notStarted: 0 });
-    expect(md).not.toMatch(/^# /m);
-    expect(md).toContain("## Outcome");
+    const md = assembleEpicMarkdown("## Outcome\n\nOverview.", header);
+    expect(md).toContain("---");
   });
 });
-
-// --- Execute-level tests with mocked LLM ---
 
 function makeIssue(overrides: Partial<JiraIssue> & { key: string }): JiraIssue {
   return {
@@ -191,13 +94,23 @@ function mockContext(toolCallLog: ToolCallEntry[], llmResponse: string): Executi
   } as unknown as ExecutionContext;
 }
 
-const MOCK_LLM_RESPONSE = JSON.stringify({
-  sectionType: "outcome",
-  section: "This epic delivers a notification system.",
-  done: ["Users receive email alerts."],
-  inProgress: ["Push notifications are being built ([PROJ-102](https://example.atlassian.net/browse/PROJ-102) · Alice Martin · In Progress)."],
-  notStarted: ["SMS integration is planned ([PROJ-103](https://example.atlassian.net/browse/PROJ-103) · Bob Chen · To Do)."],
-});
+const MOCK_LLM_MARKDOWN = [
+  "## Outcome",
+  "",
+  "This epic delivers a notification system.",
+  "",
+  "## What's Been Done",
+  "",
+  "Users receive email alerts. ([PROJ-101](https://example.atlassian.net/browse/PROJ-101) · Alice Martin · Done)",
+  "",
+  "## What's In Motion",
+  "",
+  "Push notifications are being built ([PROJ-102](https://example.atlassian.net/browse/PROJ-102) · Alice Martin · In Progress).",
+  "",
+  "## What's Not Started",
+  "",
+  "SMS integration is planned ([PROJ-103](https://example.atlassian.net/browse/PROJ-103) · Bob Chen · To Do).",
+].join("\n");
 
 describe("generateEpicNarrativeTool.execute", () => {
   it("produces narrative from single-level status grouping", async () => {
@@ -222,7 +135,7 @@ describe("generateEpicNarrativeTool.execute", () => {
       },
     ];
 
-    const ctx = mockContext(log, MOCK_LLM_RESPONSE);
+    const ctx = mockContext(log, MOCK_LLM_MARKDOWN);
     const result = await generateEpicNarrativeTool.execute({}, ctx) as { narrative: string; summary: string };
 
     expect(result.narrative).toContain("# Notification System");
@@ -256,11 +169,15 @@ describe("generateEpicNarrativeTool.execute", () => {
       },
     ];
 
-    const llmResp = JSON.stringify({
-      sectionType: "unlock",
-      section: "Enables data processing.",
-      inProgress: ["Pipeline work in progress ([PROJ-101](url) · Alice Martin · In Progress)."],
-    });
+    const llmResp = [
+      "## Unlock",
+      "",
+      "Enables data processing.",
+      "",
+      "## What's In Motion",
+      "",
+      "Pipeline work in progress ([PROJ-101](url) · Alice Martin · In Progress).",
+    ].join("\n");
 
     const ctx = mockContext(log, llmResp);
     const result = await generateEpicNarrativeTool.execute({}, ctx) as { narrative: string };
@@ -274,7 +191,7 @@ describe("generateEpicNarrativeTool.execute", () => {
     const log: ToolCallEntry[] = [
       { tool: "search_jira_issues", args: {}, result: { issues: [] } },
     ];
-    const ctx = mockContext(log, "{}");
+    const ctx = mockContext(log, "");
 
     await expect(generateEpicNarrativeTool.execute({}, ctx)).rejects.toThrow("group_issues");
   });

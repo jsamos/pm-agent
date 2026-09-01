@@ -88,6 +88,26 @@ export function isNarrativeComplete(
   return true;
 }
 
+/** Keep non-empty prose arrays from either attempt (used after retry). */
+export function mergeNarrativeFields(a: NarrativeFields, b: NarrativeFields): NarrativeFields {
+  return {
+    groupKey: a.groupKey || b.groupKey,
+    sectionType: a.sectionType || b.sectionType,
+    section: a.section || b.section,
+    done: a.done?.length ? a.done : b.done,
+    inProgress: a.inProgress?.length ? a.inProgress : b.inProgress,
+    notStarted: a.notStarted?.length ? a.notStarted : b.notStarted,
+  };
+}
+
+function proseFieldCounts(args: Record<string, unknown>): Record<string, number> {
+  return {
+    done: asStringArray(args.done)?.length ?? 0,
+    inProgress: asStringArray(args.inProgress)?.length ?? 0,
+    notStarted: asStringArray(args.notStarted)?.length ?? 0,
+  };
+}
+
 /** @deprecated use isNarrativeComplete */
 export const isGroupNarrativeComplete = isNarrativeComplete;
 
@@ -197,6 +217,7 @@ export async function callStructuredNarrativeLlm<T>(options: {
     }
 
     const raw = response.content || "";
+    const narrativeToolCall = findNarrativeToolCall(response);
     trace("inner_llm_call", {
       tool: options.tracingTool,
       groupKey: options.traceLabel,
@@ -204,6 +225,7 @@ export async function callStructuredNarrativeLlm<T>(options: {
       ms: llmMs,
       response: raw.slice(0, 2000),
       toolCalls: response.toolCalls.map((tc) => tc.name),
+      proseFields: narrativeToolCall ? proseFieldCounts(narrativeToolCall.arguments) : undefined,
     });
 
     process.stderr.write(`  [narrative] ${options.traceLabel} — ${llmMs}ms\n`);
@@ -221,7 +243,9 @@ export async function callStructuredNarrativeLlm<T>(options: {
       `  [warn] ${options.tracingTool}: ${reason} for "${options.traceLabel}" — retrying\n`,
     );
     const retryMessage = `${options.userMessage}\n\nIMPORTANT: Call ${submitToolName} now with fields done, inProgress, notStarted. Include prose for every status section that has issues. Do not reply with analysis only.`;
-    ({ parsed, source } = await invoke(retryMessage, 2));
+    const retry = await invoke(retryMessage, 2);
+    parsed = mergeNarrativeFields(parsed, retry.parsed);
+    if (retry.source !== "fallback") source = retry.source;
   }
 
   if (source === "fallback") {

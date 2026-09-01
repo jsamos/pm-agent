@@ -19,12 +19,12 @@ import { nestGroupIssues } from "./group-issues.js";
 import { getToolLlmConfig } from "../../lib/models.js";
 import { extractDiffFromLog, formatDiffBlock, epicGroupKeyFromParent, type ParentChange } from "./format-diff.js";
 import {
-  callStructuredNarrativeLlm,
-  parseNarrativeResponse,
-  SUBMIT_NARRATIVE_TOOL,
-  isNarrativeComplete,
-  type ExpectedNarrativeSections,
-} from "../../lib/narrative-llm.js";
+  appendMarkdownInstructions,
+  callMarkdownNarrativeLlm,
+  extractStatusSection,
+  legacyProseToMarkdown,
+  type StatusCounts,
+} from "../../lib/narrative-markdown.js";
 import { NARRATIVE_HEADINGS, NARRATIVE_MESSAGE_LABELS } from "../../lib/narrative-headings.js";
 import { resolveDescriptionLimit } from "../../lib/narrative-config.js";
 import type { ToolLlmConfig } from "../../lib/resolve-model.js";
@@ -33,8 +33,8 @@ import {
   collectGroupIssueKeys,
   loadNarrativeCache,
   saveNarrativeCache,
+  resolveSectionMarkdown,
   type GroupSection,
-  type NarrativeCacheEntry,
 } from "./narrative-cache.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -61,6 +61,7 @@ export function renderHeading(group: IssueGroup, outerKey: string, jiraBase: str
   return `## ${group.groupLabel}`;
 }
 
+/** @deprecated Legacy structured narrative — use unit markdown strings. */
 export interface GroupNarrative {
   groupKey: string;
   done?: string[];
@@ -68,16 +69,18 @@ export interface GroupNarrative {
   notStarted?: string[];
 }
 
-/** Normalize legacy cache entries written before vocabulary unification. */
-export function normalizeGroupNarrative(prose: GroupNarrative): GroupNarrative {
-  const legacy = prose as GroupNarrative & { delivered?: string[] };
-  return {
-    ...prose,
-    done: prose.done ?? legacy.delivered,
-  };
+/** Convert legacy test fixtures or old cache prose to a markdown map. */
+export function toMarkdownMap(input: Map<string, string> | GroupNarrative[]): Map<string, string> {
+  if (input instanceof Map) return input;
+  return new Map(input.map((g) => [g.groupKey, legacyProseToMarkdown(g)]));
 }
 
-export function expectedSectionsFromGroup(group: IssueGroup): ExpectedNarrativeSections {
+/** @deprecated Legacy structured cache entries — normalized on read. */
+export function normalizeGroupNarrative(prose: GroupNarrative): string {
+  return legacyProseToMarkdown(prose);
+}
+
+export function expectedSectionsFromGroup(group: IssueGroup): StatusCounts {
   return {
     done: getSubGroupIssues(group, "done").length,
     inProgress: getSubGroupIssues(group, "in_progress").length,
@@ -85,7 +88,7 @@ export function expectedSectionsFromGroup(group: IssueGroup): ExpectedNarrativeS
   };
 }
 
-export function expectedSectionsFromUnit(unit: EpicUnit): ExpectedNarrativeSections {
+export function expectedSectionsFromUnit(unit: EpicUnit): StatusCounts {
   return {
     done: unit.done.length,
     inProgress: unit.inProgress.length,
@@ -115,9 +118,10 @@ export interface AssembleResult {
 
 export function assembleMarkdown(
   grouped: GroupIssuesResult,
-  parsedGroups: GroupNarrative[],
+  unitMarkdown: Map<string, string> | GroupNarrative[],
   jiraBase: string,
 ): AssembleResult {
+  const markdownByKey = toMarkdownMap(unitMarkdown);
   const outerKey = grouped.groupBy[0];
   const hasStatusSub = grouped.groupBy.length > 1 && grouped.groupBy[1] === "status";
 
@@ -146,7 +150,7 @@ export function assembleMarkdown(
     return undefined;
   }
 
-  function renderGroup(dataGroup: IssueGroup, prose: GroupNarrative | undefined): string | null {
+  function renderGroup(dataGroup: IssueGroup, unitMd: string | undefined): string | null {
     const done = hasStatusSub ? getSubGroupIssues(dataGroup, "done") : [];
     const inProgress = hasStatusSub ? getSubGroupIssues(dataGroup, "in_progress") : [];
     const notStarted = hasStatusSub ? getSubGroupIssues(dataGroup, "not_started") : [];
@@ -162,23 +166,41 @@ export function assembleMarkdown(
       sections.push(`**${assignees.join(", ")}**`);
     }
 
-    if (done.length > 0) {
-      sections.push(`${NARRATIVE_HEADINGS.done}\n\n${prose?.done?.join("\n\n") || "_No narrative generated._"}`);
-    }
-    if (inProgress.length > 0) {
-      sections.push(`${NARRATIVE_HEADINGS.inProgress}\n\n${prose?.inProgress?.join("\n\n") || "_No narrative generated._"}`);
-    }
-    if (notStarted.length > 0) {
-      sections.push(`${NARRATIVE_HEADINGS.notStarted}\n\n${prose?.notStarted?.join("\n\n") || "_No narrative generated._"}`);
+    if (unitMd?.trim()) {
+      sections.push(unitMd.trim());
+    } else {
+      if (done.length > 0) {
+        sections.push(`${NARRATIVE_HEADINGS.done}\n\n_No narrative generated._`);
+      }
+      if (inProgress.length > 0) {
+        sections.push(`${NARRATIVE_HEADINGS.inProgress}\n\n_No narrative generated._`);
+      }
+      if (notStarted.length > 0) {
+        sections.push(`${NARRATIVE_HEADINGS.notStarted}\n\n_No narrative generated._`);
+      }
     }
 
     return sections.join("\n\n");
   }
 
-  const proseByKey = new Map<string, GroupNarrative>();
-  for (const pg of parsedGroups) {
-    const dataGroup = resolveDataGroup(pg.groupKey);
-    if (dataGroup) proseByKey.set(dataGroup.groupKey, pg);
+  function resolveMarkdown(dataGroup: IssueGroup): string | undefined {
+    const direct =
+      markdownByKey.get(dataGroup.groupKey)
+      ?? markdownByKey.get(dataGroup.groupLabel)
+      ?? markdownByKey.get(dataGroup.groupKey.toLowerCase())
+      ?? markdownByKey.get(dataGroup.groupLabel.toLowerCase());
+    if (direct) return direct;
+
+    for (const [key, md] of markdownByKey) {
+      const resolved = resolveDataGroup(key);
+      if (resolved?.groupKey === dataGroup.groupKey) return md;
+    }
+    return undefined;
+  }
+
+  const matchedKeys = new Set<string>();
+  for (const [key] of markdownByKey) {
+    if (resolveDataGroup(key)) matchedKeys.add(key);
   }
 
   const sorted = [...grouped.groups].sort((a, b) => {
@@ -197,20 +219,18 @@ export function assembleMarkdown(
   const md: string[] = [];
   let nonEmptyCount = 0;
   for (const dataGroup of sorted) {
-    const section = renderGroup(dataGroup, proseByKey.get(dataGroup.groupKey));
+    const section = renderGroup(dataGroup, resolveMarkdown(dataGroup));
     if (section) {
       md.push(section);
       nonEmptyCount++;
     }
   }
 
-  const unmatchedKeys = parsedGroups
-    .filter((pg) => !resolveDataGroup(pg.groupKey))
-    .map((pg) => pg.groupKey);
+  const unmatchedKeys = [...markdownByKey.keys()].filter((key) => !resolveDataGroup(key));
 
   return {
     markdown: linkifyIssueKeys(md.join("\n\n---\n\n"), allKeys, jiraBase),
-    matched: proseByKey.size,
+    matched: matchedKeys.size,
     total: nonEmptyCount,
     unmatchedKeys,
   };
@@ -348,7 +368,7 @@ export function buildEpicUnitMessage(unit: EpicUnit, jiraBase: string, descLimit
 export function assembleThreeLevelMarkdown(
   grouped: GroupIssuesResult,
   units: EpicUnit[],
-  proseMap: Map<string, GroupNarrative>,
+  markdownMap: Map<string, string>,
   jiraBase: string,
 ): AssembleResult {
   const assigneeOrder = [...grouped.groups].sort((a, b) => {
@@ -382,21 +402,21 @@ export function assembleThreeLevelMarkdown(
     const sections: string[] = [`## ${assigneeGroup.groupLabel}`];
 
     const statusOrder = [
-      { statusField: "done" as const, proseField: "done" as const, heading: NARRATIVE_HEADINGS.done },
-      { statusField: "inProgress" as const, proseField: "inProgress" as const, heading: NARRATIVE_HEADINGS.inProgress },
-      { statusField: "notStarted" as const, proseField: "notStarted" as const, heading: NARRATIVE_HEADINGS.notStarted },
+      { statusField: "done" as const, heading: NARRATIVE_HEADINGS.done },
+      { statusField: "inProgress" as const, heading: NARRATIVE_HEADINGS.inProgress },
+      { statusField: "notStarted" as const, heading: NARRATIVE_HEADINGS.notStarted },
     ];
 
-    for (const { statusField, proseField, heading } of statusOrder) {
+    for (const { statusField, heading } of statusOrder) {
       const epicsWithIssues = assigneeUnits.filter((u) => u[statusField].length > 0);
       if (epicsWithIssues.length === 0) continue;
 
       const epicParts: string[] = [];
       for (const u of epicsWithIssues) {
         const key = `${u.assigneeKey}::${u.epicKey}`;
-        const prose = proseMap.get(key);
-        const text = prose?.[proseField]?.join("\n\n") || "_No narrative generated._";
-        if (prose?.[proseField]) matched++;
+        const unitMd = markdownMap.get(key) || "";
+        const text = extractStatusSection(unitMd, heading) || "_No narrative generated._";
+        if (extractStatusSection(unitMd, heading)) matched++;
         const label = u.epicKey === "_no_epic_" ? "**Other Work**" : `**${u.epicLabel}**`;
         epicParts.push(`${label}\n\n${text}`);
       }
@@ -415,26 +435,24 @@ export function assembleThreeLevelMarkdown(
   };
 }
 
-async function callGroupNarrativeLlm(
+async function callUnitNarrativeLlm(
   llm: ExecutionContext["llm"],
-  groupKey: string,
   userMessage: string,
   traceLabel: string,
   toolLlm: ToolLlmConfig,
-  expected: ExpectedNarrativeSections,
-): Promise<GroupNarrative> {
-  return callStructuredNarrativeLlm({
+  expected: StatusCounts,
+  issueKeys: string[],
+): Promise<string> {
+  return callMarkdownNarrativeLlm({
     llm,
     tracingTool: "generate_sprint_narrative",
     systemPrompt: SYSTEM_PROMPT,
-    userMessage,
-    tools: [SUBMIT_NARRATIVE_TOOL],
+    userMessage: appendMarkdownInstructions(userMessage, expected),
     model: toolLlm.model,
     traceLabel,
     maxTokens: toolLlm.maxTokens,
     temperature: toolLlm.temperature,
-    parseResponse: (response) => parseNarrativeResponse(response, groupKey),
-    isComplete: (parsed) => isNarrativeComplete(parsed, expected),
+    requiredIssueKeys: issueKeys,
   });
 }
 
@@ -445,16 +463,18 @@ async function generateForGroup(
   descLimit: number,
   llm: ExecutionContext["llm"],
   toolLlm: ToolLlmConfig,
-): Promise<GroupNarrative> {
+): Promise<{ groupKey: string; markdown: string }> {
   const userMessage = buildGroupMessage(group, outerKey, jiraBase, descLimit);
-  return callGroupNarrativeLlm(
+  const issueKeys = collectGroupIssueKeys(group);
+  const markdown = await callUnitNarrativeLlm(
     llm,
-    group.groupKey,
     userMessage,
     group.groupKey,
     toolLlm,
     expectedSectionsFromGroup(group),
+    issueKeys,
   );
+  return { groupKey: group.groupKey, markdown };
 }
 
 /**
@@ -654,7 +674,7 @@ export const generateSprintNarrativeTool: Tool = {
       const units = flattenToEpicUnits(grouped);
       const totalUnits = units.length;
       let unitsToGenerate: EpicUnit[];
-      const proseMap = new Map<string, GroupNarrative>();
+      const markdownMap = new Map<string, string>();
 
       if (canReuse) {
         unitsToGenerate = [];
@@ -668,7 +688,8 @@ export const generateSprintNarrativeTool: Tool = {
             diffSignals!.parentChanges,
           );
           if (cached && !affected) {
-            proseMap.set(compositeKey, normalizeGroupNarrative(cached.prose));
+            const md = resolveSectionMarkdown(cached);
+            if (md) markdownMap.set(compositeKey, md);
             reusedCount++;
           } else {
             unitsToGenerate.push(unit);
@@ -691,25 +712,26 @@ export const generateSprintNarrativeTool: Tool = {
           unitsToGenerate.map(async (unit) => {
             const userMessage = buildEpicUnitMessage(unit, jiraBase, descLimit);
             const compositeKey = `${unit.assigneeKey}::${unit.epicKey}`;
-            const narrativeResult = await callGroupNarrativeLlm(
+            const issueKeys = [...unit.done, ...unit.inProgress, ...unit.notStarted].map((i) => i.key);
+            const markdown = await callUnitNarrativeLlm(
               context.llm,
-              compositeKey,
               userMessage,
               `${unit.assigneeLabel} / ${unit.epicLabel}`,
               toolLlm,
               expectedSectionsFromUnit(unit),
+              issueKeys,
             );
-            return { key: compositeKey, narrative: narrativeResult };
+            return { key: compositeKey, markdown };
           }),
         );
 
         const overallMs = Date.now() - overallStart;
         process.stderr.write(`  [narrative] All ${llmCallCount} calls complete — ${overallMs}ms total\n`);
 
-        for (const r of results) proseMap.set(r.key, r.narrative);
+        for (const r of results) markdownMap.set(r.key, r.markdown);
       }
 
-      const assembled = assembleThreeLevelMarkdown(grouped, units, proseMap, jiraBase);
+      const assembled = assembleThreeLevelMarkdown(grouped, units, markdownMap, jiraBase);
       narrative = assembled.markdown;
 
       totalDelivered = units.reduce((n, u) => n + u.done.length, 0);
@@ -727,7 +749,7 @@ export const generateSprintNarrativeTool: Tool = {
             groupKey: compositeKey,
             groupLabel: `${unit.assigneeLabel} / ${unit.epicLabel}`,
             issueKeys,
-            prose: proseMap.get(compositeKey) || { groupKey: compositeKey },
+            markdown: markdownMap.get(compositeKey) || "",
             renderedMarkdown: "",
           });
         }
@@ -751,7 +773,7 @@ export const generateSprintNarrativeTool: Tool = {
       // 2-level: one LLM call per outer group
       const totalGroups = grouped.groups.length;
       let groupsToGenerate: IssueGroup[];
-      const cachedProse = new Map<string, GroupNarrative>();
+      const cachedMarkdown = new Map<string, string>();
 
       if (canReuse) {
         groupsToGenerate = [];
@@ -765,7 +787,8 @@ export const generateSprintNarrativeTool: Tool = {
             diffSignals!.parentChanges,
           );
           if (cached && !affected) {
-            cachedProse.set(group.groupKey, normalizeGroupNarrative(cached.prose));
+            const md = resolveSectionMarkdown(cached);
+            if (md) cachedMarkdown.set(group.groupKey, md);
             reusedCount++;
           } else {
             groupsToGenerate.push(group);
@@ -780,12 +803,12 @@ export const generateSprintNarrativeTool: Tool = {
         process.stderr.write(`  [narrative] ${reusedCount}/${totalGroups} groups unchanged — reusing cache\n`);
       }
 
-      let parsedGroups: GroupNarrative[];
+      let freshResults: { groupKey: string; markdown: string }[];
       if (llmCallCount > 0) {
         process.stderr.write(`  [narrative] Starting ${llmCallCount} LLM calls...\n`);
         const overallStart = Date.now();
 
-        parsedGroups = await Promise.all(
+        freshResults = await Promise.all(
           groupsToGenerate.map((group) =>
             generateForGroup(group, outerKey, jiraBase, descLimit, context.llm, toolLlm),
           ),
@@ -794,24 +817,15 @@ export const generateSprintNarrativeTool: Tool = {
         const overallMs = Date.now() - overallStart;
         process.stderr.write(`  [narrative] All ${llmCallCount} calls complete — ${overallMs}ms total\n`);
       } else {
-        parsedGroups = [];
+        freshResults = [];
       }
 
-      // Merge fresh LLM results with cached prose
-      const allProse: GroupNarrative[] = [];
-      for (const group of grouped.groups) {
-        const fresh = parsedGroups.find((pg) => {
-          const trimmed = pg.groupKey.trim().toLowerCase();
-          return trimmed === group.groupKey.toLowerCase() || trimmed === group.groupLabel.toLowerCase();
-        });
-        if (fresh) {
-          allProse.push(fresh);
-        } else if (cachedProse.has(group.groupKey)) {
-          allProse.push(cachedProse.get(group.groupKey)!);
-        }
+      const markdownByKey = new Map<string, string>(cachedMarkdown);
+      for (const fresh of freshResults) {
+        markdownByKey.set(fresh.groupKey, fresh.markdown);
       }
 
-      const assembled = assembleMarkdown(grouped, allProse, jiraBase);
+      const assembled = assembleMarkdown(grouped, markdownByKey, jiraBase);
 
       if (assembled.matched < assembled.total) {
         process.stderr.write(`  [warn] generate_sprint_narrative: ${assembled.matched}/${assembled.total} groups matched (unmatched LLM keys: ${assembled.unmatchedKeys.join(", ") || "none"})\n`);
@@ -834,7 +848,7 @@ export const generateSprintNarrativeTool: Tool = {
           groupKey: group.groupKey,
           groupLabel: group.groupLabel,
           issueKeys: collectGroupIssueKeys(group),
-          prose: allProse.find((p) => p.groupKey === group.groupKey || p.groupKey.toLowerCase() === group.groupKey.toLowerCase()) || { groupKey: group.groupKey },
+          markdown: markdownByKey.get(group.groupKey) || "",
           renderedMarkdown: freshSections[idx] || "",
         }));
         saveNarrativeCache({ thread, groupBy: grouped.groupBy, sections });
