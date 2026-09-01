@@ -6,10 +6,13 @@
 
 import type { Tool } from "../registry.js";
 
+/** Jira status name — excluded from all harness JQL (container/rollup tickets). */
+export const EXCLUDE_CLOSED_JQL = "status != Closed";
+
 export const buildSprintJqlTool: Tool = {
   name: "build_sprint_jql",
   description:
-    "Build a JQL query for current sprint issues. Always includes projects (from config), open sprints, and assignee filter. Assignees are required.",
+    "Build a JQL query for current sprint issues. Always includes projects (from config), open sprints, assignee filter, and excludes Closed status. Assignees are required.",
   parameters: {
     type: "object",
     properties: {
@@ -56,6 +59,8 @@ export const buildSprintJqlTool: Tool = {
       const quoted = statusCategories.map((c) => `"${c}"`).join(", ");
       clauses.push(`statusCategory in (${quoted})`);
     }
+
+    clauses.push(EXCLUDE_CLOSED_JQL);
 
     const jql = clauses.join(" AND ") + " ORDER BY status ASC";
 

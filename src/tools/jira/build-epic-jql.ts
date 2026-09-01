@@ -9,11 +9,12 @@
  */
 
 import type { Tool } from "../registry.js";
+import { EXCLUDE_CLOSED_JQL } from "./build-sprint-jql.js";
 
 export const buildEpicJqlTool: Tool = {
   name: "build_epic_jql",
   description:
-    "Build a JQL query to fetch epic(s) and their direct children. Takes one or more epic keys and an optional assignee account ID.",
+    "Build a JQL query to fetch epic(s) and their direct children. Closed child issues are always excluded; epic keys themselves are always returned. Takes one or more epic keys and an optional assignee account ID.",
   parameters: {
     type: "object",
     properties: {
@@ -53,17 +54,18 @@ export const buildEpicJqlTool: Tool = {
 
     const hasChildFilters = !!assignee || (statusCategories && statusCategories.length > 0);
 
+    const childClauses = [`parent in (${keyList})`, EXCLUDE_CLOSED_JQL];
+    if (assignee) childClauses.push(`assignee = "${assignee}"`);
+    if (statusCategories && statusCategories.length > 0) {
+      const quoted = statusCategories.map((c) => `"${c}"`).join(", ");
+      childClauses.push(`statusCategory in (${quoted})`);
+    }
+
     let jql: string;
     if (hasChildFilters) {
-      const childClauses = [`parent in (${keyList})`];
-      if (assignee) childClauses.push(`assignee = "${assignee}"`);
-      if (statusCategories && statusCategories.length > 0) {
-        const quoted = statusCategories.map((c) => `"${c}"`).join(", ");
-        childClauses.push(`statusCategory in (${quoted})`);
-      }
       jql = `key in (${keyList}) OR (${childClauses.join(" AND ")})`;
     } else {
-      jql = `(key in (${keyList}) OR parent in (${keyList}))`;
+      jql = `(key in (${keyList}) OR (${childClauses.join(" AND ")}))`;
     }
 
     jql += " ORDER BY issuetype ASC, status ASC";
