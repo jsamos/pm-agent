@@ -11,12 +11,19 @@ export interface ParentChange {
   now: string | null;
 }
 
+export interface AssigneeChange {
+  key: string;
+  was: string | null;
+  now: string | null;
+}
+
 export interface DiffData {
   changed: boolean;
   added: string[];
   removed: string[];
   statusChanges: Array<{ key: string; was: string; now: string }>;
   parentChanges: ParentChange[];
+  assigneeChanges: AssigneeChange[];
   baselineTimestamp: string | null;
 }
 
@@ -44,6 +51,7 @@ export function extractDiffFromLog(log: ToolCallEntry[]): DiffData | null {
     removed: (result.removed as string[]) || [],
     statusChanges: (result.statusChanges as DiffData["statusChanges"]) || [],
     parentChanges: (result.parentChanges as ParentChange[]) || [],
+    assigneeChanges: (result.assigneeChanges as AssigneeChange[]) || [],
     baselineTimestamp: result.baselineTimestamp as string,
   };
 }
@@ -84,6 +92,16 @@ export function formatDiffBlock(diff: DiffData, jiraBase: string): string {
       })
       .join(", ");
     parts.push(`${diff.parentChanges.length} parent change${diff.parentChanges.length > 1 ? "s" : ""} (${changes})`);
+  }
+  if (diff.assigneeChanges.length > 0) {
+    const changes = diff.assigneeChanges
+      .map((c) => {
+        const was = c.was ?? "unassigned";
+        const now = c.now ?? "unassigned";
+        return `${link(c.key)}: ${was} → ${now}`;
+      })
+      .join(", ");
+    parts.push(`${diff.assigneeChanges.length} assignee change${diff.assigneeChanges.length > 1 ? "s" : ""} (${changes})`);
   }
 
   return `> **Changes since ${diff.baselineTimestamp}:** ${parts.join("; ")}`;

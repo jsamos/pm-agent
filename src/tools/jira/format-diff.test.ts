@@ -5,12 +5,12 @@ const JIRA_BASE = "https://example.atlassian.net/browse";
 
 describe("formatDiffBlock", () => {
   it("returns empty string when no baseline", () => {
-    const diff: DiffData = { changed: false, added: [], removed: [], statusChanges: [], parentChanges: [], baselineTimestamp: null };
+    const diff: DiffData = { changed: false, added: [], removed: [], statusChanges: [], parentChanges: [], assigneeChanges: [], baselineTimestamp: null };
     expect(formatDiffBlock(diff, JIRA_BASE)).toBe("");
   });
 
   it("renders no-changes message", () => {
-    const diff: DiffData = { changed: false, added: [], removed: [], statusChanges: [], parentChanges: [], baselineTimestamp: "2026-08-17T14:30" };
+    const diff: DiffData = { changed: false, added: [], removed: [], statusChanges: [], parentChanges: [], assigneeChanges: [], baselineTimestamp: "2026-08-17T14:30" };
     expect(formatDiffBlock(diff, JIRA_BASE)).toBe("> **No changes since 2026-08-17T14:30.**");
   });
 
@@ -21,6 +21,7 @@ describe("formatDiffBlock", () => {
       removed: [],
       statusChanges: [],
       parentChanges: [],
+      assigneeChanges: [],
       baselineTimestamp: "2026-08-17T14:30",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
@@ -36,6 +37,7 @@ describe("formatDiffBlock", () => {
       removed: ["PROJ-50"],
       statusChanges: [],
       parentChanges: [],
+      assigneeChanges: [],
       baselineTimestamp: "2026-08-17T14:30",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
@@ -53,6 +55,7 @@ describe("formatDiffBlock", () => {
         { key: "PROJ-201", was: "In Progress", now: "Done" },
       ],
       parentChanges: [],
+      assigneeChanges: [],
       baselineTimestamp: "2026-08-17T14:30",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
@@ -68,6 +71,7 @@ describe("formatDiffBlock", () => {
       removed: ["X-2"],
       statusChanges: [{ key: "X-3", was: "To Do", now: "Done" }],
       parentChanges: [],
+      assigneeChanges: [],
       baselineTimestamp: "2026-08-17T10:00",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
@@ -84,6 +88,7 @@ describe("formatDiffBlock", () => {
       removed: [],
       statusChanges: [{ key: "X-1", was: "To Do", now: "Done" }],
       parentChanges: [],
+      assigneeChanges: [],
       baselineTimestamp: "2026-08-17T10:00",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
@@ -98,6 +103,7 @@ describe("formatDiffBlock", () => {
       removed: [],
       statusChanges: [],
       parentChanges: [{ key: "X-1", was: "PROJ-10", now: "PROJ-20" }],
+      assigneeChanges: [],
       baselineTimestamp: "2026-08-17T10:00",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
@@ -113,10 +119,27 @@ describe("formatDiffBlock", () => {
       removed: [],
       statusChanges: [],
       parentChanges: [{ key: "X-1", was: null, now: "PROJ-10" }],
+      assigneeChanges: [],
       baselineTimestamp: "2026-08-17T10:00",
     };
     const result = formatDiffBlock(diff, JIRA_BASE);
     expect(result).toContain("none → [PROJ-10]");
+  });
+
+  it("renders assignee changes with account IDs", () => {
+    // Scenario: Diff block includes assignee changes
+    const diff: DiffData = {
+      changed: true,
+      added: [],
+      removed: [],
+      statusChanges: [],
+      parentChanges: [],
+      assigneeChanges: [{ key: "X-1", was: "acct-a", now: "acct-b" }],
+      baselineTimestamp: "2026-08-17T10:00",
+    };
+    const result = formatDiffBlock(diff, JIRA_BASE);
+    expect(result).toContain("1 assignee change (");
+    expect(result).toContain("acct-a → acct-b");
   });
 });
 

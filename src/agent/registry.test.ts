@@ -14,5 +14,6 @@ describe("createRegistry", () => {
     expect(names).not.toContain("notion-update-page");
     expect(names).not.toContain("slack_send_message");
     expect(names).not.toContain("slack_search_users");
+    expect(names).toContain("cascade_epic_notion_updates");
   });
 });

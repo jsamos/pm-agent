@@ -163,13 +163,23 @@ export const generateEpicNarrativeTool: Tool = {
     const searchIssues = searchResult?.issues || [];
     const epicIssue = searchIssues.find((i) => i.issueType === "Epic");
 
+    const buildEntry = [...log].reverse().find((tc) => tc.tool === "build_epic_jql");
+    const buildResult = buildEntry?.result as { assigneeFiltered?: boolean } | undefined;
+    const assigneeFiltered = buildResult?.assigneeFiltered;
+    const resolveEntry = [...log].reverse().find((tc) => tc.tool === "resolve_assignees");
+    const resolveResult = resolveEntry?.result as { resolved?: { name: string }[] } | undefined;
+    const filteredAssignee = assigneeFiltered && resolveResult?.resolved?.[0]?.name;
+
+    const epicLabel = epicIssue?.key || "epic";
+    const traceLabel = filteredAssignee ? `${filteredAssignee} / ${epicLabel}` : epicLabel;
+
     const bodyMarkdown = await callMarkdownNarrativeLlm({
       llm: context.llm,
       tracingTool: "generate_epic_narrative",
       systemPrompt: SYSTEM_PROMPT,
       userMessage,
       model: toolLlm.model,
-      traceLabel: epicIssue?.key || "epic",
+      traceLabel,
       maxTokens: toolLlm.maxTokens,
       temperature: toolLlm.temperature,
       requiredIssueKeys: allIssueKeys,
@@ -178,14 +188,6 @@ export const generateEpicNarrativeTool: Tool = {
     if (!bodyMarkdown.trim()) {
       return { narrative: "", summary: "Narrative generation failed — no markdown output." };
     }
-
-    const buildEntry = [...log].reverse().find((tc) => tc.tool === "build_epic_jql");
-    const buildResult = buildEntry?.result as { assigneeFiltered?: boolean } | undefined;
-    const assigneeFiltered = buildResult?.assigneeFiltered;
-
-    const resolveEntry = [...log].reverse().find((tc) => tc.tool === "resolve_assignees");
-    const resolveResult = resolveEntry?.result as { resolved?: { name: string }[] } | undefined;
-    const filteredAssignee = assigneeFiltered && resolveResult?.resolved?.[0]?.name;
 
     const header: EpicHeader | undefined = epicIssue
       ? { key: epicIssue.key, summary: epicIssue.summary, jiraBase, assignee: filteredAssignee || null }

@@ -23,3 +23,4 @@ Sprint narrative (follow this order EXACTLY):
      The tool automatically caches per-group prose and reuses unchanged groups on subsequent runs.
      When tickets change, only affected groups are regenerated — the rest come from cache.
   7. (Optional) If the user provides a Notion page URL for an existing report, call update_notion_page with contentFrom: "generate_sprint_narrative" (do NOT call generate_sprint_narrative again). The assembled narrative combines cached and freshly regenerated sections — the full page is replaced in Notion.
+  8. cascade_epic_notion_updates — call once when the diff showed changes (or first run with no baseline). Runs after generate_sprint_narrative (and after optional sprint Notion update in step 7). Skips epic×assignee pairs with no workPages mapping (logs "not created"). Fails only if a derived assignee is not on the roster. Skips work pages with no open issues; logs unassigned changed tickets.

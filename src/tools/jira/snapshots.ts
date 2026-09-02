@@ -14,6 +14,7 @@ const CACHE_KEY = "jira_snapshots";
 interface CachedIssue {
   key: string;
   statusCategory?: string;
+  assigneeAccountId?: string | null;
   parent?: { key?: string; summary?: string; issueType?: string } | null;
   [k: string]: unknown;
 }
@@ -30,12 +31,19 @@ export interface ParentChange {
   now: string | null;
 }
 
+export interface AssigneeChange {
+  key: string;
+  was: string | null;
+  now: string | null;
+}
+
 export interface DiffResult {
   changed: boolean;
   added: string[];
   removed: string[];
   statusChanges: Array<{ key: string; was: string; now: string }>;
   parentChanges: ParentChange[];
+  assigneeChanges: AssigneeChange[];
   baselineTimestamp: string | null;
   summary: string;
 }
@@ -43,6 +51,15 @@ export interface DiffResult {
 function parentKey(issue: CachedIssue): string | null {
   const key = issue.parent?.key;
   return key || null;
+}
+
+function assigneeId(issue: CachedIssue): string | null {
+  return issue.assigneeAccountId ?? null;
+}
+
+/** Baseline snapshots saved before assigneeAccountId shipped lack the field entirely. */
+function baselineHasAssigneeAccountId(issue: CachedIssue): boolean {
+  return "assigneeAccountId" in issue;
 }
 
 export function diffIssues(fresh: CachedIssue[], baseline: CachedIssue[]): Omit<DiffResult, "baselineTimestamp" | "summary"> {
@@ -53,6 +70,7 @@ export function diffIssues(fresh: CachedIssue[], baseline: CachedIssue[]): Omit<
   const removed: string[] = [];
   const statusChanges: Array<{ key: string; was: string; now: string }> = [];
   const parentChanges: ParentChange[] = [];
+  const assigneeChanges: AssigneeChange[] = [];
 
   for (const issue of fresh) {
     const prev = baselineMap.get(issue.key);
@@ -71,6 +89,14 @@ export function diffIssues(fresh: CachedIssue[], baseline: CachedIssue[]): Omit<
       if (prevParent !== nowParent) {
         parentChanges.push({ key: issue.key, was: prevParent, now: nowParent });
       }
+      const prevAssignee = assigneeId(prev);
+      const nowAssignee = assigneeId(issue);
+      if (
+        prevAssignee !== nowAssignee &&
+        baselineHasAssigneeAccountId(prev)
+      ) {
+        assigneeChanges.push({ key: issue.key, was: prevAssignee, now: nowAssignee });
+      }
     }
   }
 
@@ -80,9 +106,24 @@ export function diffIssues(fresh: CachedIssue[], baseline: CachedIssue[]): Omit<
     }
   }
 
-  const changed = added.length > 0 || removed.length > 0 || statusChanges.length > 0 || parentChanges.length > 0;
-  return { changed, added, removed, statusChanges, parentChanges };
+  const changed =
+    added.length > 0 ||
+    removed.length > 0 ||
+    statusChanges.length > 0 ||
+    parentChanges.length > 0 ||
+    assigneeChanges.length > 0;
+  return { changed, added, removed, statusChanges, parentChanges, assigneeChanges };
 }
+
+/** Baseline issue list from the snapshot before the most recent save for this JQL. */
+export function getBaselineIssuesForJql(jql: string): CachedIssue[] {
+  const thread = createHash("md5").update(jql).digest("hex");
+  const snapshots = cacheReadAll<SnapshotData>(CACHE_KEY).filter((s) => s.data.thread === thread);
+  if (snapshots.length < 2) return [];
+  return snapshots[snapshots.length - 2].data.issues;
+}
+
+export type { CachedIssue };
 
 export const jiraSearchSnapshotsTool: Tool = {
   name: "jira_search_snapshots",
@@ -162,6 +203,7 @@ export const jiraSearchSnapshotsTool: Tool = {
             removed: [],
             statusChanges: [],
             parentChanges: [],
+            assigneeChanges: [],
             baselineTimestamp: null,
             summary: "No baseline found for this query (first run).",
           } satisfies DiffResult;
@@ -182,6 +224,7 @@ export const jiraSearchSnapshotsTool: Tool = {
         if (diff.removed.length > 0) parts.push(`${diff.removed.length} removed`);
         if (diff.statusChanges.length > 0) parts.push(`${diff.statusChanges.length} status changes`);
         if (diff.parentChanges.length > 0) parts.push(`${diff.parentChanges.length} parent changes`);
+        if (diff.assigneeChanges.length > 0) parts.push(`${diff.assigneeChanges.length} assignee changes`);
 
         return {
           ...diff,

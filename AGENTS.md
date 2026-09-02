@@ -17,7 +17,28 @@ Also copy the behavioral spec into `openspec/changes/<name>/specs/<name>/spec.md
 
 When the feature ships, move `openspec/changes/<name>/` to `openspec/changes/archive/`. The canonical spec stays in `openspec/specs/`. Later amendments update only the canonical spec unless a new change folder is opened.
 
-Scenario tags: use `[tested]` only after an automated test covers the scenario; use `[manual]` only for true end-to-end checks that cannot run in CI. Untagged scenarios are planned but not yet verified.
+Scenario tags:
+
+| Tag | When to use |
+|-----|-------------|
+| `[tested]` | An automated test **directly asserts the scenario's WHEN/THEN** — not merely related code in the same file or feature area. |
+| `[manual]` | True end-to-end behavior that cannot run in CI (e.g. live Jira + Notion with real credentials). |
+| *(untagged)* | Planned or partially implemented; not yet verified. |
+
+**`[tested]` requirements:**
+
+1. **Name the scenario in the test** — use a comment (`// Scenario: …`) or a `describe`/`it` title that matches the spec scenario heading so reviewers can trace spec ↔ test.
+2. **Exercise the WHEN** — call the tool, parser, or assembly function the scenario describes. Scenarios about **skill or prompt instructions** MAY assert on the skill/prompt artifact via a parser test when the THEN is what the orchestrator is told to do (not what it did in a live run).
+3. **Assert the THEN** — check outputs, thrown errors, side effects, or call order exactly as the spec states.
+4. **One scenario, one primary test** — a single test may cover multiple assertions for the same scenario; do not mark a scenario `[tested]` because a nearby scenario in the same module is tested.
+
+**Do not mark `[tested]` when:**
+
+- Coverage is only indirect (e.g. "happy path runs" but the scenario is about a specific edge case).
+- The test only reads static skill/prompt markdown **without a parser or structured assertion** (a bare `toContain` on one phrase is not enough).
+- The spec and implementation diverge (fix the spec or the code first, then tag).
+
+When adding `[tested]`, add or update the test in the same change. When removing behavior, remove the tag or delete the scenario.
 
 Commit the specs before writing any implementation code. See `openspec/changes/archive/2026-08-25-smart-update/` or `openspec/changes/epic-notion-cascade/` for examples.
 

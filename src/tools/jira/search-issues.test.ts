@@ -107,6 +107,23 @@ describe("parseJiraIssues", () => {
     expect(parseJiraIssues({ issues: null })).toEqual([]);
   });
 
+  // Scenario: Search result includes account ID
+  it("parses assigneeAccountId from assignee field", () => {
+    const result = parseJiraIssues({
+      issues: [baseIssue({
+        assignee: { displayName: "Alice Martin", accountId: "712020:00000000-0000-0000-0000-000000000001" },
+      })],
+    });
+    expect(result[0].assigneeAccountId).toBe("712020:00000000-0000-0000-0000-000000000001");
+  });
+
+  it("returns null assigneeAccountId when unassigned", () => {
+    const result = parseJiraIssues({
+      issues: [baseIssue({ assignee: null })],
+    });
+    expect(result[0].assigneeAccountId).toBeNull();
+  });
+
   it("strips image markdown from descriptions", () => {
     const result = parseJiraIssues({
       issues: [baseIssue({ description: "Before ![alt](http://img.png) After" })],

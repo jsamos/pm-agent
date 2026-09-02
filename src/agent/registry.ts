@@ -10,6 +10,7 @@ import {
   groupIssuesTool,
   generateEpicNarrativeTool,
   generateSprintNarrativeTool,
+  cascadeEpicNotionUpdatesTool,
 } from "../tools/jira/index.js";
 import { readRosterTool, writeRosterTool } from "../tools/roster/index.js";
 import { searchSlackUsersTool, sendSlackMessageTool } from "../tools/slack/index.js";
@@ -29,6 +30,7 @@ export function createRegistry(): ToolRegistry {
   registry.register(groupIssuesTool);
   registry.register(generateEpicNarrativeTool);
   registry.register(generateSprintNarrativeTool);
+  registry.register(cascadeEpicNotionUpdatesTool);
 
   // User lookup
   registry.register(searchUsersTool);

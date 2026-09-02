@@ -141,6 +141,120 @@ describe("jira_search_snapshots: diff action", () => {
     expect(result.summary).toContain("1 parent change");
   });
 
+  // Scenario: Assignee change in diff
+  it("detects assignee changes", async () => {
+    const { createHash } = await import("node:crypto");
+    const jql = "project = TEST";
+    const thread = createHash("md5").update(jql).digest("hex");
+
+    seedCache([{
+      thread,
+      jql,
+      issues: [{ key: "X-1", statusCategory: "To Do", assigneeAccountId: "acct-a" }],
+    }]);
+
+    const ctx = makeContext([makeSearchResult([
+      { key: "X-1", statusCategory: "To Do", assigneeAccountId: "acct-b" },
+    ], jql)]);
+    const result = await jiraSearchSnapshotsTool.execute({ action: "diff" }, ctx) as {
+      changed: boolean;
+      assigneeChanges: Array<{ key: string; was: string | null; now: string | null }>;
+      summary: string;
+    };
+
+    expect(result.changed).toBe(true);
+    expect(result.assigneeChanges).toEqual([{ key: "X-1", was: "acct-a", now: "acct-b" }]);
+    expect(result.summary).toContain("1 assignee change");
+  });
+
+  // Scenario: Unassigned transition — assigned → unassigned
+  it("detects unassigned transition", async () => {
+    const { createHash } = await import("node:crypto");
+    const jql = "project = TEST";
+    const thread = createHash("md5").update(jql).digest("hex");
+
+    seedCache([{
+      thread,
+      jql,
+      issues: [{ key: "X-1", statusCategory: "To Do", assigneeAccountId: "acct-a" }],
+    }]);
+
+    const ctx = makeContext([makeSearchResult([
+      { key: "X-1", statusCategory: "To Do", assigneeAccountId: null },
+    ], jql)]);
+    const result = await jiraSearchSnapshotsTool.execute({ action: "diff" }, ctx) as {
+      assigneeChanges: Array<{ key: string; was: string | null; now: string | null }>;
+    };
+
+    expect(result.assigneeChanges).toEqual([{ key: "X-1", was: "acct-a", now: null }]);
+  });
+
+  // Scenario: Unassigned transition — unassigned → assigned
+  it("detects newly assigned transition", async () => {
+    const { createHash } = await import("node:crypto");
+    const jql = "project = TEST";
+    const thread = createHash("md5").update(jql).digest("hex");
+
+    seedCache([{
+      thread,
+      jql,
+      issues: [{ key: "X-1", statusCategory: "To Do", assigneeAccountId: null }],
+    }]);
+
+    const ctx = makeContext([makeSearchResult([
+      { key: "X-1", statusCategory: "To Do", assigneeAccountId: "acct-b" },
+    ], jql)]);
+    const result = await jiraSearchSnapshotsTool.execute({ action: "diff" }, ctx) as {
+      assigneeChanges: Array<{ key: string; was: string | null; now: string | null }>;
+    };
+
+    expect(result.assigneeChanges).toEqual([{ key: "X-1", was: null, now: "acct-b" }]);
+  });
+
+  it("does not false-positive when assignee unchanged", async () => {
+    const { createHash } = await import("node:crypto");
+    const jql = "project = TEST";
+    const thread = createHash("md5").update(jql).digest("hex");
+
+    seedCache([{
+      thread,
+      jql,
+      issues: [{ key: "X-1", statusCategory: "To Do", assigneeAccountId: "acct-a" }],
+    }]);
+
+    const ctx = makeContext([makeSearchResult([
+      { key: "X-1", statusCategory: "To Do", assigneeAccountId: "acct-a" },
+    ], jql)]);
+    const result = await jiraSearchSnapshotsTool.execute({ action: "diff" }, ctx) as { changed: boolean; assigneeChanges: unknown[] };
+
+    expect(result.changed).toBe(false);
+    expect(result.assigneeChanges).toEqual([]);
+  });
+
+  // Scenario: Legacy baseline assignee backfill
+  it("ignores assignee backfill when baseline lacks assigneeAccountId", async () => {
+    const { createHash } = await import("node:crypto");
+    const jql = "project = TEST";
+    const thread = createHash("md5").update(jql).digest("hex");
+
+    seedCache([{
+      thread,
+      jql,
+      issues: [{ key: "X-1", statusCategory: "To Do", assignee: "Alice Martin" }],
+    }]);
+
+    const ctx = makeContext([makeSearchResult([
+      { key: "X-1", statusCategory: "To Do", assigneeAccountId: "acct-a", assignee: "Alice Martin" },
+    ], jql)]);
+    const result = await jiraSearchSnapshotsTool.execute({ action: "diff" }, ctx) as {
+      changed: boolean;
+      assigneeChanges: unknown[];
+    };
+
+    expect(result.changed).toBe(false);
+    expect(result.assigneeChanges).toEqual([]);
+  });
+
   it("detects move from no epic to epic parent", async () => {
     const { createHash } = await import("node:crypto");
     const jql = "project = TEST";
@@ -271,6 +385,18 @@ describe("jira_search_snapshots: save → diff round-trip", () => {
     const result = await jiraSearchSnapshotsTool.execute({ action: "diff" }, diffCtx) as { changed: boolean };
 
     expect(result.changed).toBe(false);
+  });
+
+  it("save preserves assigneeAccountId on cached issues", async () => {
+    // Scenario: Snapshot stores account ID
+    const jql = "project = TEST";
+    const issues = [{ key: "X-1", statusCategory: "To Do", assigneeAccountId: "acct-a" }];
+    const saveCtx = makeContext([makeSearchResult(issues, jql)]);
+    await jiraSearchSnapshotsTool.execute({ action: "save" }, saveCtx);
+
+    const { cacheReadAll } = await import("../../lib/cache.js");
+    const snapshots = cacheReadAll("jira_snapshots");
+    expect(snapshots.at(-1)?.data.issues[0].assigneeAccountId).toBe("acct-a");
   });
 });
 

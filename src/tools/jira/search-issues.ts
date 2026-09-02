@@ -26,6 +26,7 @@ export interface JiraIssue {
   statusCategoryChangedDate: string | null;
   priority: string;
   assignee: string | null;
+  assigneeAccountId: string | null;
   parent: { key: string; summary: string; issueType: string } | null;
   issueType: string;
   description: string | null;
@@ -53,7 +54,7 @@ export function parseJiraIssues(raw: unknown, options?: ParseOptions): JiraIssue
 
     const status = fields.status as { name?: string; statusCategory?: { name?: string } } | null;
     const priority = fields.priority as { name?: string } | null;
-    const assignee = fields.assignee as { displayName?: string } | null;
+    const assignee = fields.assignee as { displayName?: string; accountId?: string } | null;
     const issueType = fields.issuetype as { name?: string } | null;
     const parent = fields.parent as {
       key?: string;
@@ -86,6 +87,7 @@ export function parseJiraIssues(raw: unknown, options?: ParseOptions): JiraIssue
       statusCategoryChangedDate: (fields.statuscategorychangedate as string) || null,
       priority: priority?.name || "None",
       assignee: assignee?.displayName || null,
+      assigneeAccountId: assignee?.accountId ?? null,
       issueType: issueType?.name || "Unknown",
       parent: parent
         ? {
