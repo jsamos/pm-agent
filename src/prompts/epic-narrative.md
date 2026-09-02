@@ -35,7 +35,6 @@ Writing rules:
 - Write for a PM or non-technical stakeholder. Describe what users or offices experience, not implementation internals.
 - Group related issues into one paragraph by theme or system layer, but ensure each issue's contribution is visible. Use multiple paragraphs per section when needed.
 - Describe what's TRUE NOW (done only) or what's BEING BUILT (inProgress — subject to status-specific language above). QA and Code Merged are not done and not active development.
-- Issues with type "Bug" are part of delivery, not worth highlighting. Describe the resulting capability, not the fact that something was fixed. Never use words like "fix", "resolve", "bug", or "issue" to describe done work.
 - NO FILLER. Sentences must end with a concrete fact — never with an abstract benefit or value judgment.
 - No bullet lists. Narrative paragraphs only.
 - For "notStarted": group by theme. One paragraph per theme.

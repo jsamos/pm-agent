@@ -11,10 +11,13 @@
 import type { Tool } from "../registry.js";
 import { EXCLUDE_CLOSED_JQL } from "./build-sprint-jql.js";
 
+/** Child issues only — Bugs are sprint stabilization work, not epic delivery scope. */
+export const EXCLUDE_BUG_JQL = 'issuetype != "Bug"';
+
 export const buildEpicJqlTool: Tool = {
   name: "build_epic_jql",
   description:
-    "Build a JQL query to fetch epic(s) and their direct children. Closed child issues are always excluded; epic keys themselves are always returned. Takes one or more epic keys and an optional assignee account ID.",
+    "Build a JQL query to fetch epic(s) and their direct children. Closed and Bug child issues are always excluded; epic keys themselves are always returned. Takes one or more epic keys and an optional assignee account ID.",
   parameters: {
     type: "object",
     properties: {
@@ -54,7 +57,7 @@ export const buildEpicJqlTool: Tool = {
 
     const hasChildFilters = !!assignee || (statusCategories && statusCategories.length > 0);
 
-    const childClauses = [`parent in (${keyList})`, EXCLUDE_CLOSED_JQL];
+    const childClauses = [`parent in (${keyList})`, EXCLUDE_CLOSED_JQL, EXCLUDE_BUG_JQL];
     if (assignee) childClauses.push(`assignee = "${assignee}"`);
     if (statusCategories && statusCategories.length > 0) {
       const quoted = statusCategories.map((c) => `"${c}"`).join(", ");
