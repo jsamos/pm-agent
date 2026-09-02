@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { RosterEntry } from "../tools/roster/read.js";
+import type { RosterEntry } from "../tools/roster/types.js";
 import type { JiraIssue } from "../tools/jira/search-issues.js";
 import {
   assigneeHasRole,

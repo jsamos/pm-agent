@@ -1,12 +1,13 @@
 /**
  * Tool: write_roster
- * Adds or removes an entry from the roster.
+ * Adds, removes, or updates roster entries and publishing config.
  */
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Tool } from "../registry.js";
-import type { RosterFile, RosterEntry } from "./read.js";
+import type { RosterFile } from "./types.js";
+import { applyRosterWrite, type WriteRosterAction } from "./mutations.js";
 
 const ROSTER_PATH = resolve("src/config/roster.json");
 
@@ -25,11 +26,15 @@ function saveRoster(roster: RosterFile): void {
 export const writeRosterTool: Tool = {
   name: "write_roster",
   description:
-    "Add or remove a person from the team roster. Action 'add' requires name, accountId, and displayName. Optional roles (e.g. [\"qa\"] for QA engineers). Action 'set_roles' updates roles for an existing entry.",
+    "Update the team roster. Actions: 'add' (person + optional roles/notion/slack/workPages), 'remove', 'set_roles', 'set_notion' (homepageUrl), 'set_slack' (channelId), 'add_work_page' (page + epics[]), 'remove_work_page' (page). All actions require accountId.",
   parameters: {
     type: "object",
     properties: {
-      action: { type: "string", enum: ["add", "remove", "set_roles"], description: "Whether to add, remove, or update roles" },
+      action: {
+        type: "string",
+        enum: ["add", "remove", "set_roles", "set_notion", "set_slack", "add_work_page", "remove_work_page"],
+        description: "Roster update action",
+      },
       name: { type: "string", description: "Input name (what the user called them)" },
       shortName: { type: "string", description: "Short display name (first name)" },
       accountId: { type: "string", description: "Jira account ID" },
@@ -39,64 +44,37 @@ export const writeRosterTool: Tool = {
         items: { type: "string" },
         description: 'Optional roles — e.g. ["qa"] for QA engineers',
       },
+      homepageUrl: { type: "string", description: "For set_notion: Notion homepage URL" },
+      channelId: { type: "string", description: "For set_slack: Slack channel ID" },
+      page: { type: "string", description: "For add_work_page / remove_work_page: Notion work page URL" },
+      epics: {
+        type: "array",
+        items: { type: "string" },
+        description: "For add_work_page: Jira epic keys covered by this page",
+      },
     },
     required: ["action", "accountId"],
   },
 
-  async execute(args, context) {
-    const { action, name, shortName, accountId, displayName, roles } = args as {
-      action: "add" | "remove" | "set_roles";
+  async execute(args) {
+    const input = args as {
+      action: WriteRosterAction;
+      accountId: string;
       name?: string;
       shortName?: string;
-      accountId: string;
       displayName?: string;
       roles?: string[];
+      homepageUrl?: string;
+      channelId?: string;
+      page?: string;
+      epics?: string[];
     };
 
     const roster = loadRoster();
-
-    if (action === "add") {
-      const exists = roster.resolved.find((r) => r.accountId === accountId);
-      if (exists) {
-        return { success: true, message: `Already in roster: ${exists.displayName}` };
-      }
-
-      const entry: RosterEntry = {
-        name: name || displayName || accountId,
-        shortName: shortName || (name || "").split(" ")[0],
-        accountId,
-        displayName: displayName || name || accountId,
-        ...(roles?.length ? { roles } : {}),
-      };
-      roster.resolved.push(entry);
+    const result = applyRosterWrite(roster, input);
+    if (result.success) {
       saveRoster(roster);
-      return { success: true, message: `Added ${entry.displayName}`, total: roster.resolved.length };
     }
-
-    if (action === "remove") {
-      const before = roster.resolved.length;
-      roster.resolved = roster.resolved.filter((r) => r.accountId !== accountId);
-      if (roster.resolved.length === before) {
-        return { success: false, message: `Account ${accountId} not found in roster` };
-      }
-      saveRoster(roster);
-      return { success: true, message: `Removed`, total: roster.resolved.length };
-    }
-
-    if (action === "set_roles") {
-      const entry = roster.resolved.find((r) => r.accountId === accountId);
-      if (!entry) {
-        return { success: false, message: `Account ${accountId} not found in roster` };
-      }
-      entry.roles = roles ?? [];
-      saveRoster(roster);
-      return {
-        success: true,
-        message: `Updated roles for ${entry.displayName}`,
-        roles: entry.roles,
-      };
-    }
-
-    return { success: false, message: `Unknown action: ${action}` };
+    return result;
   },
 };

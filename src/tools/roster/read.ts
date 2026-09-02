@@ -6,27 +6,16 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Tool } from "../registry.js";
+import type { RosterFile } from "./types.js";
 
-export interface RosterEntry {
-  name: string;
-  shortName: string;
-  accountId: string;
-  displayName: string;
-  /** Optional roles — e.g. "qa" for QA engineers (see roster-roles.ts). */
-  roles?: string[];
-}
-
-export interface RosterFile {
-  resolved: RosterEntry[];
-  unresolved: string[];
-  generatedAt: string;
-}
+export type { RosterEntry, RosterFile, RosterNotionConfig, RosterSlackConfig, RosterWorkPage } from "./types.js";
 
 const ROSTER_PATH = resolve("src/config/roster.json");
 
 export const readRosterTool: Tool = {
   name: "read_roster",
-  description: "Read the current team roster. Returns all resolved entries (name, shortName, accountId, displayName) and any unresolved names.",
+  description:
+    "Read the current team roster. Returns resolved entries (Jira identity, optional roles, notion.homepageUrl, slack.channelId, workPages) and any unresolved names.",
   parameters: {
     type: "object",
     properties: {},
@@ -40,3 +29,11 @@ export const readRosterTool: Tool = {
     return { resolved: data.resolved, unresolved: data.unresolved, exists: true };
   },
 };
+
+/** Load roster file from disk — for tools that need roster without a tool call. */
+export function loadRosterFile(): RosterFile {
+  if (!existsSync(ROSTER_PATH)) {
+    return { resolved: [], unresolved: [], generatedAt: "" };
+  }
+  return JSON.parse(readFileSync(ROSTER_PATH, "utf-8"));
+}

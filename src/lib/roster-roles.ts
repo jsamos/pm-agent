@@ -4,7 +4,7 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import type { RosterEntry } from "../tools/roster/read.js";
+import type { RosterEntry } from "../tools/roster/types.js";
 import type { JiraIssue } from "../tools/jira/search-issues.js";
 
 const ROSTER_PATH = resolve("src/config/roster.json");
