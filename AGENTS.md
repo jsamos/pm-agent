@@ -5,10 +5,21 @@
 Before building a new feature or integration, write specs first in `openspec/`:
 
 1. **Proposal** (`openspec/changes/<name>/proposal.md`) — Intent, scope, and out-of-scope boundaries.
-2. **Behavioral spec** (`openspec/specs/<name>/spec.md`) — Requirements and scenarios using RFC 2119 keywords (SHALL, MUST, MAY). Copy into `openspec/changes/<name>/specs/<name>/spec.md` as well.
+2. **Behavioral spec** (`openspec/specs/<name>/spec.md`) — Requirements and scenarios using RFC 2119 keywords (SHALL, MUST, MAY).
 3. **Design** (`openspec/changes/<name>/design.md`) — Architecture, tools to create, files to modify, auth, documentation, and tests.
 
-Commit the specs before writing any implementation code. See `openspec/changes/slack-send-message/` or `openspec/changes/notion-pages/` for examples.
+Also copy the behavioral spec into `openspec/changes/<name>/specs/<name>/spec.md` so the change folder is a self-contained packet (proposal + design + spec). **While the change is in progress, keep both spec files identical** — edit the canonical file first, then mirror to the change copy.
+
+| Path | Purpose |
+|------|---------|
+| `openspec/specs/<name>/spec.md` | **Canonical** — long-lived source of truth for implemented behavior |
+| `openspec/changes/<name>/specs/<name>/spec.md` | **Change copy** — same content, bundled with proposal and design |
+
+When the feature ships, move `openspec/changes/<name>/` to `openspec/changes/archive/`. The canonical spec stays in `openspec/specs/`. Later amendments update only the canonical spec unless a new change folder is opened.
+
+Scenario tags: use `[tested]` only after an automated test covers the scenario; use `[manual]` only for true end-to-end checks that cannot run in CI. Untagged scenarios are planned but not yet verified.
+
+Commit the specs before writing any implementation code. See `openspec/changes/archive/2026-08-25-smart-update/` or `openspec/changes/epic-notion-cascade/` for examples.
 
 ## Tests
 
