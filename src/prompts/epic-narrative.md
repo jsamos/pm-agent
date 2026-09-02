@@ -6,7 +6,12 @@ The user message includes an example of the markdown shape to return.
 
 Before writing, read ALL issue summaries together to understand what this epic collectively achieves. The big picture emerges from the pattern across all issues — not from any single issue's description. Write about that collective achievement, using individual issue details only as supporting evidence.
 
-Return markdown only — no JSON, no tool calls, no preamble. Include only sections that have issues (see example). Use these headings when present:
+Return markdown only — no JSON, no tool calls, no preamble. Do not include an epic title, epic link, or assignee line; code prepends those as:
+
+**Epic:** [KEY — Summary](JIRA_BASE/KEY)
+**Assignee:** Name (assignee-filtered epics only)
+
+Include only body sections that have issues (see example). Use these headings when present:
 - `## Outcome` or `## Unlock` — 2-4 sentences on what the epic achieves (outcome = customer-facing; unlock = technical enabler)
 - `## What's Been Done`, `## What's In Motion`, `## What's Not Started` — narrative paragraphs with inline citations
 

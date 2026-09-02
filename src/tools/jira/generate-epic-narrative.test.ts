@@ -22,7 +22,7 @@ describe("assembleEpicMarkdown", () => {
     expect(md).toContain("## What's Been Done\n\nCompleted work paragraph.");
   });
 
-  it("renders H1 header with epic link when header is provided", () => {
+  it("renders Epic header with link when header is provided", () => {
     const header: EpicHeader = {
       key: "PROJ-100",
       summary: "Notification System",
@@ -30,8 +30,10 @@ describe("assembleEpicMarkdown", () => {
     };
 
     const md = assembleEpicMarkdown("## Outcome\n\nDelivers notifications.", header);
-    expect(md).toContain("# Notification System");
-    expect(md).toContain("[PROJ-100](https://example.atlassian.net/browse/PROJ-100)");
+    expect(md).toContain(
+      "**Epic:** [PROJ-100 — Notification System](https://example.atlassian.net/browse/PROJ-100)",
+    );
+    expect(md).not.toContain("# Notification System");
     expect(md).not.toContain("Assignee");
   });
 
@@ -44,16 +46,18 @@ describe("assembleEpicMarkdown", () => {
     };
 
     const md = assembleEpicMarkdown("## Unlock\n\nOverview.", header);
-    expect(md).toContain("# Data Pipeline");
-    expect(md).toContain("[PROJ-200]");
+    expect(md).toContain(
+      "**Epic:** [PROJ-200 — Data Pipeline](https://example.atlassian.net/browse/PROJ-200)",
+    );
     expect(md).toContain("**Assignee:** Alice Martin");
+    expect(md).toMatch(/\*\*Epic:\*\*.*\n\*\*Assignee:\*\* Alice Martin\n---\n## Unlock/);
   });
 
   it("returns empty string when nothing to render", () => {
     expect(assembleEpicMarkdown("")).toBe("");
   });
 
-  it("separates header and body with horizontal rules", () => {
+  it("separates header and body with a horizontal rule", () => {
     const header: EpicHeader = {
       key: "PROJ-100",
       summary: "Notification System",
@@ -61,7 +65,7 @@ describe("assembleEpicMarkdown", () => {
     };
 
     const md = assembleEpicMarkdown("## Outcome\n\nOverview.", header);
-    expect(md).toContain("---");
+    expect(md).toContain("---\n## Outcome");
   });
 });
 
@@ -138,8 +142,9 @@ describe("generateEpicNarrativeTool.execute", () => {
     const ctx = mockContext(log, MOCK_LLM_MARKDOWN);
     const result = await generateEpicNarrativeTool.execute({}, ctx) as { narrative: string; summary: string };
 
-    expect(result.narrative).toContain("# Notification System");
-    expect(result.narrative).toContain("[PROJ-100]");
+    expect(result.narrative).toContain(
+      "**Epic:** [PROJ-100 — Notification System](https://example.atlassian.net/browse/PROJ-100)",
+    );
     expect(result.narrative).toContain("## Outcome");
     expect(result.narrative).toContain("## What's Been Done");
     expect(result.narrative).toContain("## What's In Motion");
@@ -182,7 +187,9 @@ describe("generateEpicNarrativeTool.execute", () => {
     const ctx = mockContext(log, llmResp);
     const result = await generateEpicNarrativeTool.execute({}, ctx) as { narrative: string };
 
-    expect(result.narrative).toContain("# Data Pipeline");
+    expect(result.narrative).toContain(
+      "**Epic:** [PROJ-100 — Data Pipeline](https://example.atlassian.net/browse/PROJ-100)",
+    );
     expect(result.narrative).toContain("**Assignee:** Alice Martin");
     expect(result.narrative).toContain("## Unlock");
   });

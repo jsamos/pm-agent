@@ -3,7 +3,7 @@
  * Reads the last group_issues result from toolCallLog and generates
  * a prose narrative for the epic using a dedicated LLM call.
  *
- * Architecture: LLM returns markdown; code assembles the page header.
+ * Architecture: LLM returns markdown body; code assembles the Epic/Assignee header.
  */
 
 import { readFileSync } from "node:fs";
@@ -65,20 +65,23 @@ export function assembleEpicMarkdown(
   bodyMarkdown: string,
   header?: EpicHeader,
 ): string {
-  const md: string[] = [];
+  const lines: string[] = [];
 
   if (header) {
-    md.push(`# ${header.summary}`);
-    const link = `[${header.key}](${header.jiraBase}/${header.key})`;
-    const assigneeLine = header.assignee ? `\n**Assignee:** ${header.assignee}` : "";
-    md.push(link + assigneeLine);
+    lines.push(
+      `**Epic:** [${header.key} — ${header.summary}](${header.jiraBase}/${header.key})`,
+    );
+    if (header.assignee) {
+      lines.push(`**Assignee:** ${header.assignee}`);
+    }
   }
 
   if (bodyMarkdown.trim()) {
-    md.push(bodyMarkdown.trim());
+    if (lines.length > 0) lines.push("---");
+    lines.push(bodyMarkdown.trim());
   }
 
-  return md.join("\n\n---\n\n");
+  return lines.join("\n");
 }
 
 export const generateEpicNarrativeTool: Tool = {
