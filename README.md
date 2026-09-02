@@ -91,6 +91,32 @@ Tool entries MAY be a string (model name only) or an object with `model`, `maxTo
 
 See [`openspec/specs/model-routing/spec.md`](openspec/specs/model-routing/spec.md) for the full behavioral spec.
 
+**`src/config/roster.json`** — team identity and optional publishing config (gitignored; copy from `roster.example.json`):
+
+```json
+{
+  "resolved": [
+    {
+      "name": "Jane Smith",
+      "shortName": "Jane",
+      "accountId": "712020:00000000-0000-0000-0000-000000000001",
+      "displayName": "Jane Smith",
+      "notion": { "homepageUrl": "https://www.notion.so/workspace/Jane-Hub-..." },
+      "slack": { "channelId": "C01234567" },
+      "workPages": [
+        { "page": "https://www.notion.so/workspace/Platform-Epic-...", "epics": ["PROJ-100"] }
+      ]
+    }
+  ],
+  "unresolved": [],
+  "generatedAt": "2026-01-01T00:00:00.000Z"
+}
+```
+
+- **`notion.homepageUrl`** — optional person hub page (not used by cascade today).
+- **`slack.channelId`** — optional DM/channel target for future Slack publish flows.
+- **`workPages`** — maps one or more Jira epic keys to a Notion page URL. Required for [epic cascade](#epic-notion-cascade) to update assignee epic work pages after a sprint run.
+
 Create a `.env` file with your keys:
 
 ```bash
@@ -155,6 +181,8 @@ npm run agent -- "send Alice a Slack message with the sprint report"
 npm run agent -- "publish the sprint report to Notion under https://notion.so/workspace/Reports-abc123"
 ```
 
+When the sprint diff shows changes, the agent also runs **`cascade_epic_notion_updates`** to refresh mapped epic work pages in Notion (see [Epic Notion cascade](#epic-notion-cascade) below).
+
 Pipe output to a file:
 ```bash
 npm run agent -- "what's the team's progress this sprint" > output/sprint.md
@@ -170,6 +198,8 @@ Every run logs LLM round-trip times and tool execution times to stderr:
   [llm]  turn 1 — 4823ms → load_skill, resolve_assignees
   [tool] load_skill({"name":"sprint-narrative"}) — 1ms
   [tool] resolve_assignees({"filter":"roster"}) — 312ms
+  [narrative] Alice Martin / PROJ-100 — 8421ms
+  [tool] cascade_epic_notion_updates({}) — 102566ms
 ```
 
 For full traces (prompts, responses, tool results):
@@ -184,23 +214,46 @@ Trace files are written to `output/traces/<timestamp>.ndjson`.
 
 The agent receives a natural language request and decides how to handle it. For multi-step workflows, it loads a **skill** — a markdown file with step-by-step instructions — and follows it exactly. For simple questions, it uses tools directly.
 
-A sprint narrative, for example, runs through nine turns:
+A sprint narrative, for example, follows the `sprint-narrative` skill:
 
 ```
-load_skill            → step-by-step recipe
-resolve_assignees     → resolve names to account IDs
-build_sprint_jql      → construct the search query
-search_jira_issues    → fetch issues from Jira
-jira_search_snapshots → diff against last cached run
-jira_search_snapshots → save current snapshot
-group_issues          → group by epic and status
-generate_sprint_narrative → LLM writes prose, code assembles markdown
+load_skill                  → step-by-step recipe
+resolve_assignees           → resolve names to account IDs
+build_sprint_jql            → construct the search query
+search_jira_issues          → fetch issues (resolveParentsTo: "Epic")
+jira_search_snapshots       → diff against last cached run
+  (stop if unchanged — no narrative, no cascade)
+jira_search_snapshots       → save current snapshot
+group_issues                → group by epic/status or assignee/status/epic
+generate_sprint_narrative   → LLM writes prose; code assembles markdown
+update_notion_page          → optional: publish sprint report to Notion
+cascade_epic_notion_updates → when diff showed changes: refresh mapped epic work pages
 done
 ```
+
+If the user asks to regenerate all sprint prose from scratch, the skill may call `jira_narrative_cache({ action: "remove_thread" })` before grouping. Sprint narrative reuse is per-group — see [`openspec/specs/smart-update/spec.md`](openspec/specs/smart-update/spec.md).
 
 Tools return **summaries** to the LLM (e.g. "Found 27 issues across 6 epics") while full payloads stay in an internal log. Downstream tools read structured data from the log directly — the LLM never relays raw data.
 
 See [`openspec/specs/harness-architecture/spec.md`](openspec/specs/harness-architecture/spec.md) for the full design philosophy.
+
+### Epic Notion cascade
+
+After a sprint run with **changes** (or a first run with no baseline), `cascade_epic_notion_updates` derives `(assignee, epic)` pairs from the sprint diff, looks up each pair in roster `workPages`, and for each mapped Notion page:
+
+```
+build_epic_jql → search_jira_issues → jira_search_snapshots save
+  → group_issues(status) → generate_epic_narrative → update_notion_page
+```
+
+Behavior:
+
+- **Unmapped epics** — skipped; logged as `"not created"`.
+- **Unknown assignee** (not on roster) — fails the run before any LLM/Notion calls.
+- **No open work** on a mapped page — skipped with reason `"no open work"`.
+- **Unchanged sprint diff** — cascade is not run (skill stops at the diff step).
+
+Configure epic→page mappings in `roster.json` (`workPages`). See [`openspec/specs/epic-notion-cascade/spec.md`](openspec/specs/epic-notion-cascade/spec.md).
 
 ## Project structure
 
@@ -230,25 +283,27 @@ src/
 | `search_jira_issues` | External | Search Jira via MCP, parse results |
 | `search_users` | External | Look up Jira users by name |
 | `jira_search_snapshots` | Local I/O | Cache snapshots with diff, save, compact |
+| `jira_narrative_cache` | Local I/O | Per-group sprint narrative prose cache (list, remove, compact) |
 | `group_issues` | Pure | Group issues by epic, status, assignee |
 | `generate_sprint_narrative` | Composite | LLM prose + deterministic markdown assembly |
 | `generate_epic_narrative` | Composite | LLM prose + deterministic markdown assembly |
+| `cascade_epic_notion_updates` | Composite | After sprint diff: refresh roster-mapped epic work pages in Notion |
 | `search_slack_users` | External | Search Slack users by name or email |
 | `send_slack_message` | External | Send a Slack message or DM; supports `contentFrom` to forward prior tool output |
 | `fetch_notion_page` | External | Fetch a Notion page's content as markdown |
 | `create_notion_page` | External | Create a child page under a parent; supports `contentFrom` |
 | `update_notion_page` | External | Replace a page's content; supports `contentFrom` |
-| `read_roster` | Local I/O | Read team roster from disk |
-| `write_roster` | Local I/O | Add/remove roster entries |
+| `read_roster` | Local I/O | Read team roster (identity, roles, notion, slack, workPages) |
+| `write_roster` | Local I/O | Add/remove members; set roles, notion, slack, work page mappings |
 | `load_skill` | Local I/O | Load a workflow recipe by name |
 
 ### Skills
 
 | Skill | Workflow |
 |-------|----------|
-| `sprint-narrative` | Resolve team → search → diff cache → group → generate |
+| `sprint-narrative` | Resolve team → search → diff → save → group → generate → optional Notion → epic cascade |
 | `epic-narrative` | Search epic + children → diff cache → group by status → generate |
-| `roster` | Search users → read roster → write roster |
+| `roster` | Search users → read roster → write roster (including workPages for cascade) |
 
 ## Tests
 
@@ -257,7 +312,19 @@ npm test              # run all tests
 npm run test:watch    # watch mode
 ```
 
-Tests cover tool logic, markdown assembly, cache operations, the agent loop, skill loading, selective regeneration, Notion update modes, LLM rate limiting, and execute-level flows with mocked LLM and MCP responses. No tests make live LLM or network calls.
+Tests cover tool logic, markdown assembly, cache operations, the agent loop, skill loading, selective regeneration, epic Notion cascade, Notion update modes, LLM rate limiting, and execute-level flows with mocked LLM and MCP responses. No tests make live LLM or network calls.
+
+### Behavioral specs
+
+| Spec | Topic |
+|------|--------|
+| [`harness-architecture`](openspec/specs/harness-architecture/spec.md) | Tool log, skills, design philosophy |
+| [`smart-update`](openspec/specs/smart-update/spec.md) | Snapshot diff + selective narrative reuse |
+| [`epic-notion-cascade`](openspec/specs/epic-notion-cascade/spec.md) | Roster workPages, cascade after sprint diff |
+| [`model-routing`](openspec/specs/model-routing/spec.md) | Logical model names and provider routes |
+| [`llm-rate-limit`](openspec/specs/llm-rate-limit/spec.md) | OpenAI TPM pacing |
+| [`notion-pages`](openspec/specs/notion-pages/spec.md) | Notion fetch/create/update tools |
+| [`slack-messaging`](openspec/specs/slack-messaging/spec.md) | Slack user search and messaging |
 
 ## Utility scripts
 
