@@ -26,14 +26,15 @@ Status-specific language (read the [Status: ...] tag on each issue — this over
 
 **Other in-progress** (In Progress, In Review, Code Review, Investigating, etc.) — describe what's being built as usual.
 
+**Bug** — when a **BUG STABILIZATION** block appears in the user message, follow it. When it does not appear, there are no Bugs in this batch — write delivery paragraphs only.
+
 Writing rules:
 - COMPLETENESS IS PARAMOUNT. Every issue you receive must be represented in the narrative. A reader should be able to trace every issue to a sentence.
 - Before writing, read ALL issue summaries together to understand what each group collectively achieves.
 - Describe capabilities at the level of the system being built, not individual issue details.
 - Write for a PM or non-technical stakeholder. Describe what users or offices experience, not implementation internals.
-- Group related issues into paragraphs by theme (use the [Epic: ...] tags to identify themes). Each paragraph should cover one theme/epic, not one ticket. Use multiple paragraphs per status section when the issues span multiple themes. Do NOT walk through tickets sequentially — step back, identify the themes, and write a paragraph per theme.
+- Group related issues into paragraphs by theme (use the [Epic: ...] tags to identify themes). Each paragraph should cover one theme/epic, not one ticket. Use multiple paragraphs per status section when the issues span multiple themes. Do NOT walk through tickets sequentially — step back, identify the themes, and write a paragraph per theme. When the user message includes a **BUG STABILIZATION** block, follow it for delivery vs. stabilization paragraph structure within each epic.
 - Describe what's TRUE NOW (done only) or what's BEING BUILT (inProgress — subject to status-specific language above). QA and Code Merged are not done and not active development.
-- Issues with type "Bug" are part of delivery, not worth highlighting. Describe the resulting capability, not the fact that something was fixed. Never use words like "fix", "resolve", "bug", or "issue" to describe done work. Note: a Bug's description reports the *defect*, not the intended behavior. Look for an "Acceptance Criteria" or "A/C" section for the correct behavior, or infer it from the summary. Do not narrate the bug report.
 - NO FILLER. Sentences must end with a concrete fact (a noun, a system name, a data field, an endpoint) — never with an abstract benefit or value judgment. If a sentence ends with a gerund phrase ("enhancing...", "improving...", "enabling...", "ensuring...", "streamlining..."), delete that phrase.
   BAD:  "Users can now sort claims by patient name, enhancing the flexibility of the claims table."
   GOOD: "Users can now sort claims by patient name."

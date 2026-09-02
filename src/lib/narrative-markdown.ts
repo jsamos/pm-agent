@@ -6,6 +6,7 @@ import type { LLM } from "./llm.js";
 import { trace } from "./agent-loop.js";
 import { NARRATIVE_HEADINGS } from "./narrative-headings.js";
 import { buildQaLanguageHints } from "./roster-roles.js";
+import { buildBugStabilizationHints } from "./narrative-bugs.js";
 import type { JiraIssue } from "../tools/jira/search-issues.js";
 
 export type StatusField = "done" | "inProgress" | "notStarted";
@@ -61,8 +62,10 @@ export function appendMarkdownInstructions(
 ): string {
   const parts = [userMessage];
   if (issues?.length) {
-    const hints = buildQaLanguageHints(issues);
-    if (hints) parts.push(hints);
+    const qaHints = buildQaLanguageHints(issues);
+    if (qaHints) parts.push(qaHints);
+    const bugHints = buildBugStabilizationHints(issues);
+    if (bugHints) parts.push(bugHints);
   }
   parts.push(buildMarkdownExample(counts));
   return parts.join("\n\n");
