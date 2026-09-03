@@ -126,7 +126,7 @@ Export `AssigneeChange` type alongside `ParentChange`.
 
 ### Changes to `src/tools/jira/format-diff.ts`
 
-Extend `DiffData` with `assigneeChanges`. Render in `formatDiffBlock` (e.g. `INS-501: Alice → Bob` using roster short names when available, else account IDs).
+Extend `DiffData` with `assigneeChanges`. Render in `formatDiffBlock` (e.g. `PROJ-501: Alice → Bob` using roster short names when available, else account IDs).
 
 ## Cascade target derivation
 

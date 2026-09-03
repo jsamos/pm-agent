@@ -16,7 +16,7 @@ The system SHALL store per-member publishing configuration in `roster.json` alon
 - THEN all fields are returned for each resolved entry
 
 #### Scenario: Work page shape [tested]
-- GIVEN a work page entry `{ page: "<url>", epics: ["INS-900", "INS-1050"] }`
+- GIVEN a work page entry `{ page: "<url>", epics: ["PROJ-100", "PROJ-200"] }`
 - WHEN the entry is stored on a roster member
 - THEN one Notion page URL MAY map to one or more epic keys
 - AND MVP usage is typically one epic per page
