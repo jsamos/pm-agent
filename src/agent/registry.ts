@@ -12,7 +12,7 @@ import {
   generateSprintNarrativeTool,
   cascadeEpicNotionUpdatesTool,
 } from "../tools/jira/index.js";
-import { readRosterTool, writeRosterTool } from "../tools/roster/index.js";
+import { readRosterTool, writeRosterTool, resolveEpicWorkPageTool } from "../tools/roster/index.js";
 import { searchSlackUsersTool, sendSlackMessageTool } from "../tools/slack/index.js";
 import { fetchNotionPageTool, createNotionPageTool, updateNotionPageTool } from "../tools/notion/index.js";
 import { loadSkillTool } from "../tools/skills/index.js";
@@ -38,6 +38,7 @@ export function createRegistry(): ToolRegistry {
   // Roster management
   registry.register(readRosterTool);
   registry.register(writeRosterTool);
+  registry.register(resolveEpicWorkPageTool);
 
   // Slack tools
   registry.register(searchSlackUsersTool);

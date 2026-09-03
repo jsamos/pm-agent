@@ -4,6 +4,52 @@
 
 import type { RosterEntry, RosterWorkPage } from "../tools/roster/types.js";
 
+export type EpicWorkPageResolution =
+  | {
+      found: true;
+      pageUrl: string;
+      name?: string;
+      epics: string[];
+      displayName: string;
+    }
+  | {
+      found: false;
+      reason: "not created" | "assignee not on roster";
+    };
+
+/** Find a roster entry by Jira account ID. */
+export function findRosterEntryByAccountId(
+  entries: RosterEntry[],
+  accountId: string,
+): RosterEntry | undefined {
+  return entries.find((e) => e.accountId === accountId);
+}
+
+/** Resolve a roster member's Notion work page for an epic key. */
+export function resolveEpicWorkPage(
+  entries: RosterEntry[],
+  accountId: string,
+  epicKey: string,
+): EpicWorkPageResolution {
+  const member = findRosterEntryByAccountId(entries, accountId);
+  if (!member) {
+    return { found: false, reason: "assignee not on roster" };
+  }
+
+  const workPage = findWorkPageEntry(member, epicKey);
+  if (!workPage) {
+    return { found: false, reason: "not created" };
+  }
+
+  return {
+    found: true,
+    pageUrl: workPage.page,
+    name: workPage.name,
+    epics: [...workPage.epics],
+    displayName: member.displayName,
+  };
+}
+
 /** Find the work page entry whose epics array contains epicKey. */
 export function findWorkPageEntry(entry: RosterEntry, epicKey: string): RosterWorkPage | null {
   if (!entry.workPages?.length) return null;

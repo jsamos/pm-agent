@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findWorkPageEntry, findWorkPageByRef, resolveWorkPageUrl } from "./roster-work-pages.js";
+import { findWorkPageEntry, findWorkPageByRef, resolveWorkPageUrl, resolveEpicWorkPage } from "./roster-work-pages.js";
 import type { RosterEntry } from "../tools/roster/types.js";
 
 const entry: RosterEntry = {
@@ -64,5 +64,37 @@ describe("findWorkPageByRef", () => {
 
   it("returns undefined when no work page matches ref", () => {
     expect(findWorkPageByRef(entry, "missing")).toBeUndefined();
+  });
+});
+
+describe("resolveEpicWorkPage", () => {
+  const roster = [entry];
+
+  // Scenario: Mapped work page found
+  it("returns work page URL for mapped epic on roster member", () => {
+    const result = resolveEpicWorkPage(roster, "acc-jane", "PROJ-100");
+    expect(result).toEqual({
+      found: true,
+      pageUrl: "https://notion.so/dso",
+      name: "Platform Epic",
+      epics: ["PROJ-100", "PROJ-200"],
+      displayName: "Jane Smith",
+    });
+  });
+
+  // Scenario: Epic not mapped on member
+  it("returns not created when epic is not on member work pages", () => {
+    expect(resolveEpicWorkPage(roster, "acc-jane", "PROJ-999")).toEqual({
+      found: false,
+      reason: "not created",
+    });
+  });
+
+  // Scenario: Assignee not on roster
+  it("returns assignee not on roster when account ID is unknown", () => {
+    expect(resolveEpicWorkPage(roster, "acc-unknown", "PROJ-100")).toEqual({
+      found: false,
+      reason: "assignee not on roster",
+    });
   });
 });

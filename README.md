@@ -116,6 +116,7 @@ See [`openspec/specs/model-routing/spec.md`](openspec/specs/model-routing/spec.m
 - **`notion.homepageUrl`** — optional person hub page (not used by cascade today).
 - **`slack.channelId`** — optional DM/channel target for future Slack publish flows.
 - **`workPages`** — maps one or more Jira epic keys to a Notion page URL, with an optional `name` for human reference. Required for [epic cascade](#epic-notion-cascade) to update assignee epic work pages after a sprint run. Manage via `write_roster` actions: `add_work_page`, `remove_epics_from_work_page`, `set_work_page_name`, `remove_work_page`.
+- **`roles`** — optional tags such as `"qa"`. In assignee-grouped sprint narratives, dev-assigned tickets in QA status appear in QA engineers' **Not Started** (queue), not under the developer's In Motion. Set via `write_roster` `set_roles`.
 
 Create a `.env` file with your keys:
 
@@ -176,12 +177,15 @@ npm run agent -- "what's the team's progress this sprint"
 npm run agent -- "what's the sprint status by assignee, then epic"
 npm run agent -- "what's Alice working on this sprint"
 npm run agent -- "generate an epic narrative for PROJ-100"
+npm run agent -- "generate an epic narrative for PROJ-100 for Alice Martin"
 npm run agent -- "add Bob Chen to the roster"
 npm run agent -- "send Alice a Slack message with the sprint report"
 npm run agent -- "publish the sprint report to Notion under https://notion.so/workspace/Reports-abc123"
 ```
 
 When the sprint diff shows changes, the agent also runs **`cascade_epic_notion_updates`** to refresh mapped epic work pages in Notion (see [Epic Notion cascade](#epic-notion-cascade) below).
+
+Assignee-filtered epic narratives (e.g. "for Alice Martin") publish to that person's roster **work page** when the epic is mapped — same URL the cascade uses. Unmapped epics still generate narrative output with a `"not created"` note.
 
 Pipe output to a file:
 ```bash
@@ -294,6 +298,7 @@ src/
 | `create_notion_page` | External | Create a child page under a parent; supports `contentFrom` |
 | `update_notion_page` | External | Replace a page's content; supports `contentFrom` |
 | `read_roster` | Local I/O | Read team roster (identity, roles, notion, slack, workPages) |
+| `resolve_epic_work_page` | Local I/O | Look up roster work page URL for assignee + epic |
 | `write_roster` | Local I/O | Add/remove members; set roles, notion, slack; manage work page mappings (add/remove epics, rename) |
 | `load_skill` | Local I/O | Load a workflow recipe by name |
 
@@ -302,7 +307,7 @@ src/
 | Skill | Workflow |
 |-------|----------|
 | `sprint-narrative` | Resolve team → search → diff → save → group → generate → optional Notion → epic cascade |
-| `epic-narrative` | Search epic + children → diff cache → group by status → generate |
+| `epic-narrative` | Resolve assignee + work page → search epic → diff cache → group by status → generate → optional Notion publish |
 | `roster` | Search users → read roster → write roster (including workPages for cascade) |
 
 ## Tests
@@ -321,7 +326,9 @@ Tests cover tool logic, markdown assembly, cache operations, the agent loop, ski
 | [`harness-architecture`](openspec/specs/harness-architecture/spec.md) | Tool log, skills, design philosophy |
 | [`smart-update`](openspec/specs/smart-update/spec.md) | Snapshot diff + selective narrative reuse |
 | [`epic-notion-cascade`](openspec/specs/epic-notion-cascade/spec.md) | Roster workPages, cascade after sprint diff |
+| [`epic-narrative-work-page`](openspec/specs/epic-narrative-work-page/spec.md) | Publish assignee epic narratives to roster work pages |
 | [`roster-work-pages`](openspec/specs/roster-work-pages/spec.md) | Work page CRUD, display names, epic add/remove |
+| [`sprint-qa-queue`](openspec/specs/sprint-qa-queue/spec.md) | QA queue in assignee sprint narratives |
 | [`model-routing`](openspec/specs/model-routing/spec.md) | Logical model names and provider routes |
 | [`llm-rate-limit`](openspec/specs/llm-rate-limit/spec.md) | OpenAI TPM pacing |
 | [`notion-pages`](openspec/specs/notion-pages/spec.md) | Notion fetch/create/update tools |
