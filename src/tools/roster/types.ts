@@ -4,6 +4,8 @@
 
 export interface RosterWorkPage {
   page: string;
+  /** Human-readable label for referring to this page (optional). */
+  name?: string;
   epics: string[];
 }
 

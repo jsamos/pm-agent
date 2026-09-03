@@ -104,7 +104,7 @@ See [`openspec/specs/model-routing/spec.md`](openspec/specs/model-routing/spec.m
       "notion": { "homepageUrl": "https://www.notion.so/workspace/Jane-Hub-..." },
       "slack": { "channelId": "C01234567" },
       "workPages": [
-        { "page": "https://www.notion.so/workspace/Platform-Epic-...", "epics": ["PROJ-100"] }
+        { "page": "https://www.notion.so/workspace/Platform-Epic-...", "name": "Platform Epic", "epics": ["PROJ-100"] }
       ]
     }
   ],
@@ -115,7 +115,7 @@ See [`openspec/specs/model-routing/spec.md`](openspec/specs/model-routing/spec.m
 
 - **`notion.homepageUrl`** — optional person hub page (not used by cascade today).
 - **`slack.channelId`** — optional DM/channel target for future Slack publish flows.
-- **`workPages`** — maps one or more Jira epic keys to a Notion page URL. Required for [epic cascade](#epic-notion-cascade) to update assignee epic work pages after a sprint run.
+- **`workPages`** — maps one or more Jira epic keys to a Notion page URL, with an optional `name` for human reference. Required for [epic cascade](#epic-notion-cascade) to update assignee epic work pages after a sprint run. Manage via `write_roster` actions: `add_work_page`, `remove_epics_from_work_page`, `set_work_page_name`, `remove_work_page`.
 
 Create a `.env` file with your keys:
 
@@ -294,7 +294,7 @@ src/
 | `create_notion_page` | External | Create a child page under a parent; supports `contentFrom` |
 | `update_notion_page` | External | Replace a page's content; supports `contentFrom` |
 | `read_roster` | Local I/O | Read team roster (identity, roles, notion, slack, workPages) |
-| `write_roster` | Local I/O | Add/remove members; set roles, notion, slack, work page mappings |
+| `write_roster` | Local I/O | Add/remove members; set roles, notion, slack; manage work page mappings (add/remove epics, rename) |
 | `load_skill` | Local I/O | Load a workflow recipe by name |
 
 ### Skills
@@ -321,6 +321,7 @@ Tests cover tool logic, markdown assembly, cache operations, the agent loop, ski
 | [`harness-architecture`](openspec/specs/harness-architecture/spec.md) | Tool log, skills, design philosophy |
 | [`smart-update`](openspec/specs/smart-update/spec.md) | Snapshot diff + selective narrative reuse |
 | [`epic-notion-cascade`](openspec/specs/epic-notion-cascade/spec.md) | Roster workPages, cascade after sprint diff |
+| [`roster-work-pages`](openspec/specs/roster-work-pages/spec.md) | Work page CRUD, display names, epic add/remove |
 | [`model-routing`](openspec/specs/model-routing/spec.md) | Logical model names and provider routes |
 | [`llm-rate-limit`](openspec/specs/llm-rate-limit/spec.md) | OpenAI TPM pacing |
 | [`notion-pages`](openspec/specs/notion-pages/spec.md) | Notion fetch/create/update tools |

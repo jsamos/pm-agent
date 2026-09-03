@@ -11,6 +11,7 @@
       "workPages": [
         {
           "page": "https://www.notion.so/workspace/Jane-Platform-Epic-000000000001",
+          "name": "Platform Epic",
           "epics": ["PROJ-100"]
         }
       ]

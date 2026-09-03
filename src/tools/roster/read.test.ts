@@ -12,7 +12,9 @@ vi.mock("node:fs", () => ({
           displayName: "Jane Smith",
           notion: { homepageUrl: "https://notion.so/jane-hub" },
           slack: { channelId: "C01234567" },
-          workPages: [{ page: "https://notion.so/page", epics: ["PROJ-100", "PROJ-200"] }],
+          workPages: [
+            { page: "https://notion.so/page", name: "Platform Epic", epics: ["PROJ-100", "PROJ-200"] },
+          ],
         },
       ],
       unresolved: [],
@@ -30,7 +32,7 @@ describe("readRosterTool", () => {
     expect(result.resolved[0].notion?.homepageUrl).toBe("https://notion.so/jane-hub");
     expect(result.resolved[0].slack?.channelId).toBe("C01234567");
     expect(result.resolved[0].workPages).toEqual([
-      { page: "https://notion.so/page", epics: ["PROJ-100", "PROJ-200"] },
+      { page: "https://notion.so/page", name: "Platform Epic", epics: ["PROJ-100", "PROJ-200"] },
     ]);
   });
 });

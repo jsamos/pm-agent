@@ -2,6 +2,7 @@
  * Pure roster mutation logic — used by write_roster and tests.
  */
 
+import { findWorkPageByRef } from "../../lib/roster-work-pages.js";
 import type {
   RosterEntry,
   RosterFile,
@@ -17,7 +18,9 @@ export type WriteRosterAction =
   | "set_notion"
   | "set_slack"
   | "add_work_page"
-  | "remove_work_page";
+  | "remove_work_page"
+  | "remove_epics_from_work_page"
+  | "set_work_page_name";
 
 export interface WriteRosterInput {
   action: WriteRosterAction;
@@ -40,10 +43,36 @@ export interface WriteRosterResult {
   message: string;
   total?: number;
   roles?: string[];
+  warning?: string;
 }
 
 function findEntry(roster: RosterFile, accountId: string): RosterEntry | undefined {
   return roster.resolved.find((r) => r.accountId === accountId);
+}
+
+function pruneEmptyWorkPages(entry: RosterEntry): void {
+  if (entry.workPages?.length === 0) delete entry.workPages;
+}
+
+function workPageNotFoundMessage(displayName: string): string {
+  return `Work page not found for ${displayName}`;
+}
+
+function collectDuplicateEpicWarnings(
+  entry: RosterEntry,
+  targetPageUrl: string,
+  epics: string[],
+): string | undefined {
+  const warnings: string[] = [];
+  for (const epic of epics) {
+    for (const wp of entry.workPages ?? []) {
+      if (wp.page !== targetPageUrl && wp.epics.includes(epic)) {
+        const label = wp.name ?? wp.page;
+        warnings.push(`${epic} was already mapped on ${label}`);
+      }
+    }
+  }
+  return warnings.length > 0 ? warnings.join("; ") : undefined;
 }
 
 export function applyRosterWrite(roster: RosterFile, input: WriteRosterInput): WriteRosterResult {
@@ -128,15 +157,30 @@ export function applyRosterWrite(roster: RosterFile, input: WriteRosterInput): W
       return { success: false, message: "epics must be a non-empty array for add_work_page" };
     }
     const page = input.page.trim();
+    const pageLabel = input.name?.trim();
     if (!entry.workPages) entry.workPages = [];
+
+    const warning = collectDuplicateEpicWarnings(entry, page, input.epics);
     const existing = entry.workPages.find((wp) => wp.page === page);
     if (existing) {
-      const merged = [...new Set([...existing.epics, ...input.epics])];
-      existing.epics = merged;
-      return { success: true, message: `Updated work page epics for ${entry.displayName}` };
+      existing.epics = [...new Set([...existing.epics, ...input.epics])];
+      if (pageLabel) existing.name = pageLabel;
+      return {
+        success: true,
+        message: `Updated work page epics for ${entry.displayName}`,
+        ...(warning ? { warning } : {}),
+      };
     }
-    entry.workPages.push({ page, epics: [...input.epics] });
-    return { success: true, message: `Added work page for ${entry.displayName}` };
+    entry.workPages.push({
+      page,
+      epics: [...input.epics],
+      ...(pageLabel ? { name: pageLabel } : {}),
+    });
+    return {
+      success: true,
+      message: `Added work page for ${entry.displayName}`,
+      ...(warning ? { warning } : {}),
+    };
   }
 
   if (action === "remove_work_page") {
@@ -147,14 +191,57 @@ export function applyRosterWrite(roster: RosterFile, input: WriteRosterInput): W
     if (!input.page?.trim()) {
       return { success: false, message: "page is required for remove_work_page" };
     }
-    const page = input.page.trim();
-    const before = entry.workPages?.length ?? 0;
-    entry.workPages = (entry.workPages ?? []).filter((wp) => wp.page !== page);
-    if ((entry.workPages?.length ?? 0) === before) {
-      return { success: false, message: `Work page not found for ${entry.displayName}` };
+    const matched = findWorkPageByRef(entry, input.page.trim());
+    if (!matched) {
+      return { success: false, message: workPageNotFoundMessage(entry.displayName) };
     }
-    if (entry.workPages?.length === 0) delete entry.workPages;
+    entry.workPages = (entry.workPages ?? []).filter((wp) => wp.page !== matched.page);
+    pruneEmptyWorkPages(entry);
     return { success: true, message: `Removed work page for ${entry.displayName}` };
+  }
+
+  if (action === "remove_epics_from_work_page") {
+    const entry = findEntry(roster, accountId);
+    if (!entry) {
+      return { success: false, message: `Account ${accountId} not found in roster` };
+    }
+    if (!input.page?.trim()) {
+      return { success: false, message: "page is required for remove_epics_from_work_page" };
+    }
+    if (!input.epics?.length) {
+      return { success: false, message: "epics must be a non-empty array for remove_epics_from_work_page" };
+    }
+    const matched = findWorkPageByRef(entry, input.page.trim());
+    if (!matched) {
+      return { success: false, message: workPageNotFoundMessage(entry.displayName) };
+    }
+    const removeSet = new Set(input.epics);
+    matched.epics = matched.epics.filter((e) => !removeSet.has(e));
+    if (matched.epics.length === 0) {
+      entry.workPages = (entry.workPages ?? []).filter((wp) => wp.page !== matched.page);
+      pruneEmptyWorkPages(entry);
+      return { success: true, message: `Removed work page for ${entry.displayName}` };
+    }
+    return { success: true, message: `Updated work page epics for ${entry.displayName}` };
+  }
+
+  if (action === "set_work_page_name") {
+    const entry = findEntry(roster, accountId);
+    if (!entry) {
+      return { success: false, message: `Account ${accountId} not found in roster` };
+    }
+    if (!input.page?.trim()) {
+      return { success: false, message: "page is required for set_work_page_name" };
+    }
+    if (!input.name?.trim()) {
+      return { success: false, message: "name is required for set_work_page_name" };
+    }
+    const matched = findWorkPageByRef(entry, input.page.trim());
+    if (!matched) {
+      return { success: false, message: workPageNotFoundMessage(entry.displayName) };
+    }
+    matched.name = input.name.trim();
+    return { success: true, message: `Updated work page name for ${entry.displayName}` };
   }
 
   return { success: false, message: `Unknown action: ${action}` };
