@@ -878,6 +878,47 @@ describe("upgradeAssigneeGrouping", () => {
   });
 });
 
+describe("QA queue rebucket in sprint narrative pipeline", () => {
+  const qaRoster = [
+    {
+      name: "Alice",
+      shortName: "Alice",
+      accountId: "acc-alice",
+      displayName: "Alice Martin",
+    },
+    {
+      name: "Bob",
+      shortName: "Bob",
+      accountId: "acc-bob",
+      displayName: "Bob Chen",
+      roles: ["qa"] as const,
+    },
+  ];
+
+  // Scenario: Assignee-grouped sprint narrative
+  it("applies QA queue rebucket after assignee grouping upgrade", async () => {
+    const { applyQaQueueRebucket } = await import("../../lib/sprint-qa-queue.js");
+    const aliceQa = makeIssue("PROJ-100", {
+      assignee: "Alice Martin",
+      status: "QA",
+      statusCategory: "In Progress",
+      parent: { key: "EPIC-1", summary: "Platform Epic", issueType: "Epic" },
+    });
+    const issues = [aliceQa];
+    let grouped = makeGrouped(
+      [makeEpicGroup("Alice Martin", "Alice Martin", { inProgress: [aliceQa] })],
+      ["assignee", "status"],
+    );
+    grouped = upgradeAssigneeGrouping(grouped, issues);
+    grouped = applyQaQueueRebucket(grouped, qaRoster);
+
+    const bob = grouped.groups.find((g) => g.groupKey === "Bob Chen");
+    expect(bob).toBeDefined();
+    const notStarted = bob!.subGroups?.find((s) => s.groupKey === "not_started");
+    expect(notStarted?.issues.some((i) => i.key === "PROJ-100")).toBe(true);
+  });
+});
+
 describe("flattenToEpicUnits", () => {
   function make3LevelGrouped(): GroupIssuesResult {
     return {

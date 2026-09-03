@@ -28,6 +28,8 @@ import {
 import { NARRATIVE_HEADINGS, NARRATIVE_MESSAGE_LABELS } from "../../lib/narrative-headings.js";
 import { resolveDescriptionLimit } from "../../lib/narrative-config.js";
 import type { ToolLlmConfig } from "../../lib/resolve-model.js";
+import { loadRosterEntries } from "../../lib/roster-roles.js";
+import { applyQaQueueRebucket } from "../../lib/sprint-qa-queue.js";
 import {
   computeThread,
   collectGroupIssueKeys,
@@ -645,6 +647,10 @@ export const generateSprintNarrativeTool: Tool = {
     const searchIssues = extractIssuesFromLog(log);
     if (searchIssues) {
       grouped = upgradeAssigneeGrouping(grouped, searchIssues);
+    }
+
+    if (grouped.groupBy[0] === "assignee") {
+      grouped = applyQaQueueRebucket(grouped, loadRosterEntries());
     }
 
     const jiraBase = ((context.config.issueLinkBase as string) || "https://your-org.atlassian.net/browse").replace(/\/+$/, "");
