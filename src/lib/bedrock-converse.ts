@@ -43,7 +43,9 @@ export interface ConverseOptions {
 function toConverseMessages(messages: Message[]): unknown[] {
   const out: unknown[] = [];
 
-  for (const msg of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
     if (msg.role === "system") {
       out.push({
         role: "user",
@@ -53,17 +55,20 @@ function toConverseMessages(messages: Message[]): unknown[] {
     }
 
     if (msg.role === "tool") {
-      out.push({
-        role: "user",
-        content: [
-          {
-            toolResult: {
-              toolUseId: msg.toolCallId,
-              content: [{ text: msg.content }],
-            },
+      // Bedrock requires all tool results from one assistant turn in a single user message.
+      const toolResults: unknown[] = [];
+      while (i < messages.length && messages[i].role === "tool") {
+        const toolMsg = messages[i];
+        toolResults.push({
+          toolResult: {
+            toolUseId: toolMsg.toolCallId,
+            content: [{ text: toolMsg.content }],
           },
-        ],
-      });
+        });
+        i++;
+      }
+      i--;
+      out.push({ role: "user", content: toolResults });
       continue;
     }
 
@@ -88,6 +93,11 @@ function toConverseMessages(messages: Message[]): unknown[] {
   }
 
   return out;
+}
+
+/** @internal Exported for unit tests. */
+export function converseMessagesForTest(messages: Message[]): unknown[] {
+  return toConverseMessages(messages);
 }
 
 function toToolConfig(tools: ToolDefinition[]): Record<string, unknown> {
