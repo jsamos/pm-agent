@@ -1,3 +1,8 @@
+---
+name: roster
+description: Team roster setup, updates, or review
+---
+
 Roster management:
   1. search_users to find account info
   2. read_roster to check current state (includes optional notion, slack, workPages per member)

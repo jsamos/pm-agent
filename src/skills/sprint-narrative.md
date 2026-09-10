@@ -1,3 +1,8 @@
+---
+name: sprint-narrative
+description: Sprint status report or progress narrative
+---
+
 Sprint narrative (follow this order EXACTLY):
   1. resolve_assignees to get account IDs
   2. build_sprint_jql to construct the query

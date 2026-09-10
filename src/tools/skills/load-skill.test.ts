@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadSkillTool } from "./load-skill.js";
+import { loadSkillTool, listSkills } from "./load-skill.js";
 
 const dummyCtx = {} as Parameters<typeof loadSkillTool.execute>[1];
 
@@ -16,8 +16,8 @@ describe("load_skill", () => {
   });
 
   it("loads each available skill without error", async () => {
-    const available = ["sprint-narrative", "epic-narrative", "roster"];
-    for (const name of available) {
+    const skills = listSkills();
+    for (const { name } of skills) {
       const result = (await loadSkillTool.execute({ name }, dummyCtx)) as {
         skill: string;
         instructions: string;
@@ -33,10 +33,19 @@ describe("load_skill", () => {
     );
   });
 
-  it("lists available skills in tool description", () => {
-    expect(loadSkillTool.description).toContain("sprint-narrative");
-    expect(loadSkillTool.description).toContain("epic-narrative");
-    expect(loadSkillTool.description).toContain("roster");
+  it("only lists skills that have frontmatter with name and description", () => {
+    const skills = listSkills();
+    for (const skill of skills) {
+      expect(skill.name).toBeTruthy();
+      expect(skill.description).toBeTruthy();
+    }
+    const names = skills.map((s) => s.name);
+    expect(names).not.toContain("AGENTS");
+  });
+
+  it("includes descriptions in tool description", () => {
+    expect(loadSkillTool.description).toContain("sprint-narrative (Sprint status report or progress narrative)");
+    expect(loadSkillTool.description).toContain("meeting-ppoa (");
   });
 
   // [tested] Scenario: Prose regen clears cached entries (smart-update spec)

@@ -1,3 +1,8 @@
+---
+name: epic-narrative
+description: Epic status summary or narrative
+---
+
 Epic narrative (follow this order EXACTLY):
   1. If assignee specified: resolve_assignees first to get the account ID
      a. If the user provided a Notion page URL, skip roster lookup — use that URL in step 7.
