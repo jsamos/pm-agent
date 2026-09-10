@@ -15,6 +15,7 @@
     "tools": "tsx src/scripts/list-tools.ts",
     "tools:verbose": "tsx src/scripts/list-tools.ts --verbose",
     "agent": "tsx src/scripts/agent.ts",
+    "fetch-transcript": "tsx src/scripts/fetch-notion-transcript.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

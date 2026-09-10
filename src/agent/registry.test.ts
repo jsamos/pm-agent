@@ -7,6 +7,7 @@ describe("createRegistry", () => {
     const names = registry.list().map((t) => t.name);
 
     expect(names).toContain("fetch_notion_page");
+    expect(names).toContain("fetch_notion_transcript");
     expect(names).toContain("send_slack_message");
     expect(names).toContain("search_slack_users");
     expect(names).not.toContain("notion-fetch");

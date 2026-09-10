@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { parseNotionId } from "./parse-url.js";
 import { parseFetchResponse, fetchNotionPageTool } from "./fetch-page.js";
+import { fetchNotionTranscriptTool } from "./fetch-transcript.js";
 import { parseCreateResponse, createNotionPageTool } from "./create-page.js";
 import { updateNotionPageTool } from "./update-page.js";
 
@@ -317,5 +318,110 @@ describe("createNotionPageTool.execute", () => {
         { toolCallLog: [], config: {} } as any,
       ),
     ).rejects.toThrow("Could not extract Notion page ID");
+  });
+});
+
+// --- fetch_notion_transcript tests ---
+
+describe("fetchNotionTranscriptTool.execute", () => {
+  let mockCallNotionTool: ReturnType<typeof vi.fn>;
+  let mockExtractTextContent: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    const client = await import("./client.js");
+    mockCallNotionTool = client.callNotionTool as ReturnType<typeof vi.fn>;
+    mockExtractTextContent = client.extractTextContent as ReturnType<typeof vi.fn>;
+    mockCallNotionTool.mockClear();
+    mockExtractTextContent.mockImplementation(
+      (result: { content: { text: string }[] }) => result.content[0].text,
+    );
+  });
+
+  const MEETING_BODY = [
+    '<page url="https://app.notion.com/p/abc123def456">',
+    "<content>",
+    '<meeting-notes attendees="user://u1">',
+    "\tTeam Sync — 2026-09-10",
+    "\t<summary>",
+    "\t\t### Action Items",
+    "\t\t- [ ] Alice to review the spec",
+    "\t</summary>",
+    "\t<notes><empty-block/></notes>",
+    "\t<transcript>",
+    "\t\tAlice: Let's review the spec today.",
+    "\t\tBob: Sounds good.",
+    "\t</transcript>",
+    "</meeting-notes>",
+    "</content>",
+    "</page>",
+  ].join("\n");
+
+  const PAGE_URL = "https://app.notion.com/p/Team-Sync-abc123def456";
+
+  // Scenario: Fetch transcript by URL
+  it("returns transcript with include_transcript passed to MCP", async () => {
+    mockCallNotionTool.mockResolvedValue({
+      content: [{ type: "text", text: MEETING_BODY }],
+      isError: false,
+    });
+
+    const result = (await fetchNotionTranscriptTool.execute!(
+      { pageUrl: PAGE_URL },
+      { toolCallLog: [], config: {} } as any,
+    )) as { title: string; transcript: string; url: string; charCount: number };
+
+    expect(mockCallNotionTool).toHaveBeenCalledWith("notion-fetch", {
+      id: PAGE_URL,
+      include_transcript: true,
+    });
+    expect(result.title).toBe("Team Sync — 2026-09-10");
+    expect(result.transcript).toBe("Alice: Let's review the spec today.\nBob: Sounds good.");
+    expect(result.url).toBe("https://app.notion.com/p/abc123def456");
+    expect(result.charCount).toBe(result.transcript.length);
+  });
+
+  // Scenario: Fetch transcript by page ID
+  it("accepts a raw page ID", async () => {
+    mockCallNotionTool.mockResolvedValue({
+      content: [{ type: "text", text: MEETING_BODY }],
+      isError: false,
+    });
+
+    await fetchNotionTranscriptTool.execute!(
+      { pageUrl: "abc123def456" },
+      { toolCallLog: [], config: {} } as any,
+    );
+
+    expect(mockCallNotionTool).toHaveBeenCalledWith("notion-fetch", {
+      id: "abc123def456",
+      include_transcript: true,
+    });
+  });
+
+  // Scenario: Invalid page
+  it("raises when the MCP call fails", async () => {
+    mockCallNotionTool.mockRejectedValue(new Error("Notion MCP error (notion-fetch): page not found"));
+
+    await expect(
+      fetchNotionTranscriptTool.execute!(
+        { pageUrl: PAGE_URL },
+        { toolCallLog: [], config: {} } as any,
+      ),
+    ).rejects.toThrow("page not found");
+  });
+
+  it("raises when no transcript block is present", async () => {
+    const noTranscript = '<page url="https://app.notion.com/p/abc123"><content># Notes</content></page>';
+    mockCallNotionTool.mockResolvedValue({
+      content: [{ type: "text", text: noTranscript }],
+      isError: false,
+    });
+
+    await expect(
+      fetchNotionTranscriptTool.execute!(
+        { pageUrl: PAGE_URL },
+        { toolCallLog: [], config: {} } as any,
+      ),
+    ).rejects.toThrow("No transcript found");
   });
 });
