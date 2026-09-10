@@ -8,7 +8,7 @@ description: Summarize a meeting transcript into four sections — Product Requi
 Workflow (follow this order):
   1. If the user provided a Notion page URL, call fetch_notion_transcript to get the raw transcript
   2. If the user pasted or uploaded a transcript, use it directly — no fetch needed
-  3. Produce the four-section PPOA breakdown below using the transcript text
+  3. Call generate_meeting_ppoa to produce the four-section PPOA breakdown (it reads the transcript from the prior fetch result, or pass it directly)
 
 ## Output format
 

@@ -27,10 +27,10 @@ describe("meeting-ppoa skill workflow", () => {
     expect(step2.line).toMatch(/no fetch/i);
   });
 
-  it("third step produces the PPOA breakdown", () => {
+  it("third step calls generate_meeting_ppoa for the PPOA breakdown", () => {
     const step3 = stepByNumber(steps, 3)!;
     expect(step3).toBeDefined();
-    expect(step3.line).toMatch(/ppoa/i);
+    expect(step3.line).toContain("generate_meeting_ppoa");
   });
 
   // Scenario: Orchestrator skill index

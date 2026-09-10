@@ -20,6 +20,7 @@ import {
   createNotionPageTool,
   updateNotionPageTool,
 } from "../tools/notion/index.js";
+import { generateMeetingPpoaTool } from "../tools/meeting/index.js";
 import { loadSkillTool } from "../tools/skills/index.js";
 
 export function createRegistry(): ToolRegistry {
@@ -54,6 +55,9 @@ export function createRegistry(): ToolRegistry {
   registry.register(fetchNotionTranscriptTool);
   registry.register(createNotionPageTool);
   registry.register(updateNotionPageTool);
+
+  // Meeting tools
+  registry.register(generateMeetingPpoaTool);
 
   // Skill loader
   registry.register(loadSkillTool);
