@@ -182,6 +182,52 @@ describe("agent loop", () => {
     expect(result.response).toBe("I see the error.");
   });
 
+  it("short-circuits when tool returns finalOutput: true", async () => {
+    let llmCallCount = 0;
+    const llm: LLM = {
+      generate: async () => ({ content: "", finishReason: "stop", toolCalls: [] }),
+      generateWithTools: async () => {
+        llmCallCount++;
+        if (llmCallCount === 1) {
+          return {
+            content: "",
+            finishReason: "tool_calls",
+            toolCalls: [{ id: "tc1", name: "generate", arguments: {} }],
+          };
+        }
+        return { content: "This response should never be reached.", finishReason: "stop", toolCalls: [] };
+      },
+    };
+    const context = createMockContext(llm);
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "generate",
+      description: "Produces final output",
+      parameters: { type: "object", properties: {} },
+      execute: async () => ({
+        narrative: "# The Report\nContent here.",
+        summary: "Report generated (26 chars).",
+        finalOutput: true,
+      }),
+    });
+
+    const result = await runAgentLoop({
+      systemPrompt: "test",
+      userMessage: "go",
+      registry,
+      context,
+    });
+
+    expect(llmCallCount).toBe(1);
+    expect(result.turns).toBe(1);
+    expect(result.response).toBe("Report generated (26 chars).");
+    expect(result.output).toEqual({
+      narrative: "# The Report\nContent here.",
+      summary: "Report generated (26 chars).",
+      finalOutput: true,
+    });
+  });
+
   it("stops at maxTurns", async () => {
     // LLM always calls a tool, never finishes
     const llm: LLM = {

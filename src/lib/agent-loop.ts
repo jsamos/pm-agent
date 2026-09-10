@@ -141,6 +141,12 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         content: llmContent,
         toolCallId: tc.id,
       });
+
+      if (resultObj && resultObj.finalOutput === true) {
+        process.stderr.write(`  [agent] ${tc.name} is final output — skipping orchestrator turn\n`);
+        if (traceFile) process.stderr.write(`  [trace] ${traceFile}\n`);
+        return { response: llmContent, turns, toolCalls: toolCallLog, output: result };
+      }
     }
   }
 

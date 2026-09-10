@@ -2,6 +2,17 @@ import { describe, it, expect, vi } from "vitest";
 import { generateMeetingPpoaTool } from "./generate-meeting-ppoa.js";
 import type { ToolCallEntry } from "../../lib/agent-loop.js";
 
+vi.mock("../roster/read.js", () => ({
+  loadRosterFile: () => ({
+    resolved: [
+      { displayName: "Alice Martin" },
+      { displayName: "Bob Chen" },
+    ],
+    unresolved: [],
+    generatedAt: "",
+  }),
+}));
+
 const SAMPLE_PPOA = `## Product Requirements
 - System must support both professional and institutional claim types
 
@@ -64,6 +75,8 @@ describe("generate_meeting_ppoa", () => {
 
     expect(result.ppoa).toContain("# Team Sync — 2026-09-10");
     expect(result.ppoa).toContain("## Product Requirements");
+    expect(result.charCount).toBe(SAMPLE_PPOA.length);
+    expect(result.summary).toContain("PPOA generated");
   });
 
   it("accepts transcript directly as a parameter", async () => {
@@ -76,6 +89,26 @@ describe("generate_meeting_ppoa", () => {
     const [messages] = ctx.llm.generate.mock.calls[0];
     expect(messages[1].content).toBe("Alice: Let's talk about the API.\nBob: Sure.");
     expect(result.ppoa).toContain("# API Review");
+  });
+
+  it("includes roster names in the system prompt", async () => {
+    const ctx = buildContext({
+      toolCallLog: [
+        {
+          tool: "fetch_notion_transcript",
+          args: {},
+          result: { title: "Standup", transcript: "Alice: status update", charCount: 20 },
+          durationMs: 50,
+        },
+      ],
+    });
+
+    await generateMeetingPpoaTool.execute!({}, ctx);
+
+    const [messages] = ctx.llm.generate.mock.calls[0];
+    expect(messages[0].content).toContain("Alice Martin");
+    expect(messages[0].content).toContain("Bob Chen");
+    expect(messages[0].content).toContain("use these exact names");
   });
 
   it("throws when no transcript is available", async () => {

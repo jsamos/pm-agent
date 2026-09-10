@@ -71,6 +71,52 @@ The meeting-ppoa skill SHALL contain numbered steps that the agent follows in or
 - AND the agent uses the provided text as the transcript source
 - **Test:** `second step uses pasted or uploaded transcript directly without fetch` — [`src/skills/meeting-ppoa.test.ts`](../../../src/skills/meeting-ppoa.test.ts)
 
+### Requirement: Dedicated PPOA Generation
+
+The system SHALL use a dedicated LLM call (not the orchestrator) to produce the PPOA from the transcript.
+
+#### Scenario: Dedicated LLM generates PPOA [tested]
+
+- GIVEN a transcript available in `toolCallLog` from a prior `fetch_notion_transcript` call
+- WHEN `generate_meeting_ppoa` is called
+- THEN a focused LLM call is made with the PPOA system prompt and the raw transcript
+- AND the result contains the four-section PPOA markdown with a title heading
+- **Test:** `reads transcript from prior fetch_notion_transcript result` — [`src/tools/meeting/generate-meeting-ppoa.test.ts`](../../../src/tools/meeting/generate-meeting-ppoa.test.ts)
+- **Test:** `accepts transcript directly as a parameter` — [`src/tools/meeting/generate-meeting-ppoa.test.ts`](../../../src/tools/meeting/generate-meeting-ppoa.test.ts)
+
+#### Scenario: Roster names injected into PPOA prompt [tested]
+
+- GIVEN a team roster exists on disk with display names
+- WHEN `generate_meeting_ppoa` is called
+- THEN the system prompt includes the roster display names with an instruction to normalize spoken names
+- **Test:** `includes roster names in the system prompt` — [`src/tools/meeting/generate-meeting-ppoa.test.ts`](../../../src/tools/meeting/generate-meeting-ppoa.test.ts)
+
+#### Scenario: No transcript available [tested]
+
+- GIVEN no prior `fetch_notion_transcript` result and no `transcript` parameter
+- WHEN `generate_meeting_ppoa` is called
+- THEN an error is raised
+- **Test:** `throws when no transcript is available` — [`src/tools/meeting/generate-meeting-ppoa.test.ts`](../../../src/tools/meeting/generate-meeting-ppoa.test.ts)
+
+#### Scenario: Empty LLM response [tested]
+
+- GIVEN a transcript is available
+- WHEN the dedicated LLM returns empty content
+- THEN the tool returns a failure summary without crashing
+- **Test:** `returns failure summary when LLM returns empty` — [`src/tools/meeting/generate-meeting-ppoa.test.ts`](../../../src/tools/meeting/generate-meeting-ppoa.test.ts)
+
+### Requirement: Final Output Short-Circuit
+
+When a tool returns `finalOutput: true`, the agent loop SHALL skip the orchestrator's final LLM turn and return immediately. The PPOA tool, epic narrative, and sprint narrative all set this flag.
+
+#### Scenario: finalOutput short-circuit [tested]
+
+- GIVEN a tool that returns `{ ..., finalOutput: true }`
+- WHEN the agent loop receives the tool result
+- THEN it returns immediately without making another LLM call
+- AND the result's `summary` is used as the loop response
+- **Test:** `short-circuits when tool returns finalOutput: true` — [`src/lib/agent-loop.test.ts`](../../../src/lib/agent-loop.test.ts)
+
 ### Requirement: Skill Registration
 
 The orchestrator SHALL list meeting-ppoa among available multi-step skills.

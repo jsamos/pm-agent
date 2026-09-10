@@ -38,11 +38,15 @@ async function main() {
     }
   }
 
-  // Check toolCalls for a narrative (bypasses LLM rewriting)
+  // Check toolCalls for generated content (bypasses LLM rewriting)
+  const ppoaCall = result.toolCalls.find((tc) => tc.tool === "generate_meeting_ppoa");
   const narrativeCall = result.toolCalls.find(
     (tc) => tc.tool === "generate_epic_narrative" || tc.tool === "generate_sprint_narrative"
   );
-  if (narrativeCall) {
+  if (ppoaCall) {
+    const res = ppoaCall.result as { ppoa?: string };
+    console.log(res.ppoa || result.response);
+  } else if (narrativeCall) {
     const res = narrativeCall.result as { narrative?: string };
     console.log(res.narrative || result.response);
   } else {

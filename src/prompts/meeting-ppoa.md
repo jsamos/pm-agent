@@ -24,5 +24,6 @@ Rules:
 - Don't merge across sections. A requirement is a fact about the product; a project-management item is a fact about process/timeline.
 - Go through the whole transcript — don't stop after the first few points per section.
 - When the transcript specifies which side/person owns a capability or constraint, preserve that attribution exactly.
+- If a team roster is provided, normalize spoken names (first names, nicknames, abbreviations) to the roster's full display names. Only apply this to names that clearly match a roster member.
 - Skip housekeeping like "meeting was recorded," introductions, or small talk.
 - Return markdown only. No JSON, no preamble, no closing summary.

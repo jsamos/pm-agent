@@ -12,9 +12,17 @@ import type { Tool } from "../registry.js";
 import type { ExecutionContext } from "../../lib/context.js";
 import { getToolLlmConfig } from "../../lib/models.js";
 import { trace } from "../../lib/agent-loop.js";
+import { loadRosterFile } from "../roster/read.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT = readFileSync(resolve(__dirname, "../../prompts/meeting-ppoa.md"), "utf-8").trim();
+
+function buildRosterContext(): string {
+  const roster = loadRosterFile();
+  if (!roster.resolved.length) return "";
+  const names = roster.resolved.map((r) => r.displayName);
+  return `\nTeam roster (use these exact names in the output):\n${names.join(", ")}\n`;
+}
 
 function resolveTranscript(context: ExecutionContext, args: Record<string, unknown>): { transcript: string; title: string } {
   if (typeof args.transcript === "string" && args.transcript.trim()) {
@@ -70,10 +78,15 @@ export const generateMeetingPpoaTool: Tool = {
       transcriptChars: transcript.length,
     });
 
+    const rosterContext = buildRosterContext();
+    const systemPrompt = rosterContext
+      ? SYSTEM_PROMPT + "\n" + rosterContext
+      : SYSTEM_PROMPT;
+
     const llmStart = Date.now();
     const response = await context.llm.generate(
       [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         { role: "user", content: transcript },
       ],
       {
@@ -98,9 +111,14 @@ export const generateMeetingPpoaTool: Tool = {
       return { ppoa: "", summary: "PPOA generation failed — no output from LLM." };
     }
 
+    const ppoa = `# ${title}\n\n${markdown}`;
+
     return {
-      ppoa: `# ${title}\n\n${markdown}`,
-      summary: `PPOA generated for "${title}" (${markdown.length} chars). Full content available via contentFrom: "generate_meeting_ppoa".`,
+      ppoa,
+      title,
+      charCount: markdown.length,
+      summary: `PPOA generated for "${title}" (${markdown.length} chars).`,
+      finalOutput: true,
     };
   },
 };

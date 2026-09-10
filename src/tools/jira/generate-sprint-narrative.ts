@@ -874,6 +874,7 @@ export const generateSprintNarrativeTool: Tool = {
     return {
       narrative,
       summary: `Sprint narrative generated — ${llmCallCount} LLM calls, ${reusedCount} reused from cache. ${totalDelivered} done, ${totalInProgress} in progress.${cacheNote} Full content available via contentFrom: "generate_sprint_narrative".`,
+      finalOutput: true,
     };
   },
 };

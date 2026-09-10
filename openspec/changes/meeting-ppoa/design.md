@@ -1,15 +1,19 @@
-# Meeting PPOA — Design (transcript fetch foundation)
+# Meeting PPOA — Design
 
-Depends on: Notion MCP (`notion-fetch` with `include_transcript: true`), `meeting-ppoa` skill.
+Depends on: Notion MCP (`notion-fetch` with `include_transcript: true`), `meeting-ppoa` skill, dedicated PPOA LLM call.
 
 ## Flow
 
 ```
 User: "PPOA for https://notion.so/…"
   → load_skill(meeting-ppoa)
-  → fetch_notion_transcript(pageUrl)
-  → (agent summarizes in chat using skill format — no new tool yet)
+  → fetch_notion_transcript(pageUrl)    — transcript stays in toolCallLog, summary sent to orchestrator
+  → generate_meeting_ppoa({})           — dedicated LLM call, reads transcript from toolCallLog
+  → agent-loop short-circuits           — finalOutput: true skips orchestrator's final turn
+  → agent.ts outputs ppoa from toolCallLog directly to stdout
 ```
+
+The orchestrator never sees the transcript text or the PPOA content. It only sees summary strings. The `agent.ts` script pulls the `ppoa` field from `toolCallLog` for direct output — same pattern as `generate_epic_narrative` and `generate_sprint_narrative`.
 
 CLI verification:
 
@@ -68,8 +72,29 @@ Location: `src/tools/notion/fetch-transcript.ts`
 - Applies `extractTranscriptText` to parse the `<transcript>` block
 - Falls back to full page text (stripped of XML tags) for non-meeting-note pages
 - Returns `{ title, transcript, pageId, url, charCount, summary }`
+- The `summary` field triggers the agent-loop summary pattern — only the summary string reaches the orchestrator; the full transcript stays in `toolCallLog` for `generate_meeting_ppoa` to read
 
-Register in `src/agent/registry.ts`.
+## Tool: `generate_meeting_ppoa`
+
+Location: `src/tools/meeting/generate-meeting-ppoa.ts`
+
+- Reads transcript from `toolCallLog` (prior `fetch_notion_transcript` result) or accepts a direct `transcript` parameter
+- Makes a dedicated `context.llm.generate()` call with `src/prompts/meeting-ppoa.md` as the system prompt and the raw transcript as the user message
+- Uses `getToolLlmConfig("generate_meeting_ppoa")` for model/temperature/maxTokens
+- Returns `{ ppoa, title, charCount, summary, finalOutput: true }`
+- `finalOutput: true` triggers the agent-loop short-circuit — the orchestrator does not get a final turn after this tool completes
+
+## Prompt: `meeting-ppoa.md`
+
+Location: `src/prompts/meeting-ppoa.md`
+
+Focused system prompt for the PPOA LLM call. Defines the four sections (Product Requirements, Project Management, Open Questions, Action Items), formatting rules, and constraints. No orchestrator context or competing instructions.
+
+## Output pipeline
+
+`src/scripts/agent.ts` checks `toolCallLog` for a `generate_meeting_ppoa` result before checking for narrative results. When found, outputs `result.ppoa` directly to stdout, bypassing the orchestrator's chat response entirely. Same pattern as epic/sprint narratives.
+
+Register both tools in `src/agent/registry.ts`.
 
 ## Script
 
@@ -77,40 +102,47 @@ Register in `src/agent/registry.ts`.
 
 `package.json`: `"fetch-transcript": "tsx src/scripts/fetch-notion-transcript.ts"`
 
-## Files (this change — tool + script only)
+## Files
 
 | File | Change |
 |------|--------|
 | `src/lib/notion-transcript.ts` | `extractTranscriptText`, `extractMeetingTitle`, `extractPageUrl` |
 | `src/lib/notion-transcript.test.ts` | Extraction scenarios |
-| `src/tools/notion/fetch-transcript.ts` | New tool |
+| `src/tools/notion/fetch-transcript.ts` | `fetch_notion_transcript` tool |
 | `src/tools/notion/index.ts` | Export |
-| `src/agent/registry.ts` | Register tool |
+| `src/tools/meeting/generate-meeting-ppoa.ts` | `generate_meeting_ppoa` tool (dedicated LLM call) |
+| `src/tools/meeting/generate-meeting-ppoa.test.ts` | 4 test scenarios |
+| `src/prompts/meeting-ppoa.md` | PPOA system prompt |
+| `src/skills/meeting-ppoa.md` | Skill with numbered workflow steps + frontmatter |
+| `src/skills/meeting-ppoa.test.ts` | Skill structure tests |
+| `src/tools/skills/load-skill.ts` | Refactored to parse YAML frontmatter (single skill registry) |
+| `src/prompts/orchestrator.md` | Removed manual skill index (load_skill is sole source) |
+| `src/lib/agent-loop.ts` | `finalOutput` short-circuit |
+| `src/lib/agent-loop.test.ts` | Short-circuit test |
+| `src/scripts/agent.ts` | PPOA output bypass from toolCallLog |
+| `src/agent/registry.ts` | Register both tools |
 | `src/agent/registry.test.ts` | Assert registered |
 | `src/scripts/fetch-notion-transcript.ts` | Live fetch CLI |
 | `package.json` | `fetch-transcript` script |
 | `openspec/specs/meeting-ppoa/spec.md` | Canonical spec |
 
-**Not in this change** (deferred to follow-up):
-- `src/skills/meeting-ppoa.md` — numbered fetch step
-- `src/skills/meeting-ppoa.test.ts` — skill workflow test
-- `src/prompts/orchestrator.md` — skill index entry
-- README updates
-
 ## Documentation
 
 ### README.md
 
-(Deferred to follow-up when skill wiring lands)
+- Add `generate_meeting_ppoa` to the tools table
+- Add `fetch_notion_transcript` to the tools table
+- Add `meeting-ppoa` to the behavioral specs table
+- Document the `finalOutput` short-circuit pattern in agent loop section
 
 ### Spec scenario tags
 
-When implementation and tests land, update both spec copies:
+Both spec copies are kept in sync:
 
 - [`openspec/specs/meeting-ppoa/spec.md`](../../specs/meeting-ppoa/spec.md)
 - [`openspec/changes/meeting-ppoa/specs/meeting-ppoa/spec.md`](specs/meeting-ppoa/spec.md)
 
-### Scenario → test mapping (fill in at ship time)
+### Scenario → test mapping
 
 | Spec scenario | Test title | File |
 |---------------|------------|------|
@@ -124,3 +156,9 @@ When implementation and tests land, update both spec copies:
 | Notion URL triggers fetch | `first step instructs calling fetch_notion_transcript for a Notion URL` | [`src/skills/meeting-ppoa.test.ts`](../../../src/skills/meeting-ppoa.test.ts) |
 | Inline transcript skips fetch | `second step uses pasted or uploaded transcript directly without fetch` | [`src/skills/meeting-ppoa.test.ts`](../../../src/skills/meeting-ppoa.test.ts) |
 | Orchestrator skill index | `appears in load_skill available skills with a description` | [`src/skills/meeting-ppoa.test.ts`](../../../src/skills/meeting-ppoa.test.ts) |
+| Roster names injected into PPOA prompt | `includes roster names in the system prompt` | [`src/tools/meeting/generate-meeting-ppoa.test.ts`](../../../src/tools/meeting/generate-meeting-ppoa.test.ts) |
+| Dedicated LLM generates PPOA | `reads transcript from prior fetch_notion_transcript result` | [`src/tools/meeting/generate-meeting-ppoa.test.ts`](../../../src/tools/meeting/generate-meeting-ppoa.test.ts) |
+| Dedicated LLM generates PPOA | `accepts transcript directly as a parameter` | [`src/tools/meeting/generate-meeting-ppoa.test.ts`](../../../src/tools/meeting/generate-meeting-ppoa.test.ts) |
+| No transcript available | `throws when no transcript is available` | [`src/tools/meeting/generate-meeting-ppoa.test.ts`](../../../src/tools/meeting/generate-meeting-ppoa.test.ts) |
+| Empty LLM response | `returns failure summary when LLM returns empty` | [`src/tools/meeting/generate-meeting-ppoa.test.ts`](../../../src/tools/meeting/generate-meeting-ppoa.test.ts) |
+| finalOutput short-circuit | `short-circuits when tool returns finalOutput: true` | [`src/lib/agent-loop.test.ts`](../../../src/lib/agent-loop.test.ts) |

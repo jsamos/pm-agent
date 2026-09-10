@@ -204,6 +204,7 @@ export const generateEpicNarrativeTool: Tool = {
     return {
       narrative,
       summary: `Narrative generated (${done.length} done, ${inProgress.length} in progress, ${notStarted.length} not started). Full content available via contentFrom: "generate_epic_narrative".`,
+      finalOutput: true,
     };
   },
 };

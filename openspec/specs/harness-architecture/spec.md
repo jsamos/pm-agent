@@ -38,6 +38,20 @@ summary: "Report generated (6 groups). Full content available via contentFrom: \
 
 The downstream tool accepts a `contentFrom` parameter. Instead of the LLM reconstructing the content from the summary, it just tells the tool where to look. The tool resolves the reference from the call log directly. The LLM's role is routing — naming which prior tool's output to forward — not relaying content.
 
+### Final output tools skip the orchestrator
+
+Some tools produce the final deliverable — a narrative, a PPOA breakdown, a formatted report. Once that tool completes, the orchestrator has nothing useful to add; letting it run wastes tokens and time on a response that gets discarded.
+
+Tools signal this by returning `finalOutput: true`. When the agent loop sees this flag, it returns immediately — no further LLM turn. The entry point script pulls the deliverable directly from the tool call log.
+
+```
+Tool returns:  { narrative: "...", summary: "Report generated.", finalOutput: true }
+Agent loop:    returns immediately — summary becomes the loop response
+Entry script:  reads narrative from toolCallLog, outputs to stdout
+```
+
+This complements the summary pattern: the summary keeps the orchestrator lightweight during the workflow, and `finalOutput` prevents a wasted turn at the end.
+
 ### The LLM should route data between tools
 
 *North star.* The ideal: tools are fully decoupled. A tool never imports another tool. When a downstream tool needs prior data, the LLM reads the summary, decides what's next, and directs the next tool to the right prior result in the chain. The LLM is the router — it decides not just *which* tool to call, but *what data* to feed it.
@@ -90,8 +104,9 @@ Tools that need external services connect on first call. The connection is manag
 │    1. Send messages + tool list → LLM       │
 │    2. If LLM responds without tools → done  │
 │    3. Execute each tool call via registry    │
-│    4. Append results to message history     │
-│    5. Loop                                  │
+│    4. If result has finalOutput → done      │
+│    5. Append results to message history     │
+│    6. Loop                                  │
 └──────────────────────┬──────────────────────┘
                        │
          ┌─────────────┼─────────────┐
@@ -278,11 +293,10 @@ Turn 4: search_issues         → "Found 27 items across 6 workstreams"
 Turn 5: check_cache (diff)    → "3 added, 1 status change since last run"
 Turn 6: check_cache (save)    → "Cached 27 items"
 Turn 7: group_results         → "Grouped into 6 workstreams × 3 statuses"
-Turn 8: generate_report       → formatted narrative document
-Turn 9: LLM responds          → done
+Turn 8: generate_report       → formatted narrative document (finalOutput → done)
 ```
 
-The skill controlled step order (diff before save, abort on no changes). The LLM made intent decisions (who to include, whether to continue after seeing the diff). The tools handled mechanics (query construction, API calls, caching, deterministic document assembly). The report tool made its own internal LLM call for prose generation — the orchestrator LLM never saw the raw data.
+The skill controlled step order (diff before save, abort on no changes). The LLM made intent decisions (who to include, whether to continue after seeing the diff). The tools handled mechanics (query construction, API calls, caching, deterministic document assembly). The report tool made its own internal LLM call for prose generation — the orchestrator LLM never saw the raw data. Because the report tool returned `finalOutput: true`, the loop ended immediately without a wasted orchestrator turn.
 
 ### Cross-service chaining
 
